@@ -159,6 +159,10 @@ the in-memory proposal without changing the workspace. Native Codex and Claude `
 supported; filesystem watching aligns safe changes and surfaces provider-specific additions for
 review.
 
+Managed CLI previews can be minimized or cleared without changing the generated result, proposal,
+or workspace files. Completed reviews, summaries, configuration runs, and applied workspace
+proposals collapse automatically; **Show CLI preview** restores the transcript for that session.
+
 **Clear agent workspace** disables continuous alignment, backs up every discovered Codex- and
 Claude-owned repository workspace file outside the repository—including supporting files under
 `.agents/`, `.codex/`, and `.claude/`—and then removes those files. The active Markdown plan and

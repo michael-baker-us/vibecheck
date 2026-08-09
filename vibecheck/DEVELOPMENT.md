@@ -60,6 +60,9 @@ local agent events ────────┘
 - `reviews/` invokes replaceable Codex or Claude CLI providers in read-only mode and validates their
   structured output before it enters workspace state. Observable provider events also feed a bounded,
   memory-only terminal transcript; hidden reasoning is neither displayed nor persisted.
+- The Control Center keeps transcript presentation state in the webview only. Each managed CLI
+  preview can be minimized, cleared, and restored without mutating its session result; successful
+  sessions collapse automatically.
 - `agent-instructions/refresh-service.ts` runs the same read-only provider pattern to propose a
   validated, multi-file Claude/Codex workspace. The extension owns preview, stale-proposal checks,
   backups, and the explicit apply-all write boundary.

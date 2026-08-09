@@ -45,7 +45,16 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /usage-track/);
   assert.match(source, /Live CLI review/);
   assert.match(source, /review-terminal/);
-  assert.match(source, /transcriptPinned/);
+  assert.match(source, /const cliTranscript =/);
+  assert.match(source, /transcriptViews/);
+  assert.match(source, /transcriptPins/);
+  assert.match(source, /Minimize/);
+  assert.match(source, /Clear preview/);
+  assert.match(source, /Show CLI preview/);
+  assert.match(source, /reviewState\.status==='completed'\?'minimized':'expanded'/);
+  assert.match(source, /summarySession\.status==='completed'\?'minimized':'expanded'/);
+  assert.match(source, /setupSession\.status==='completed'\?'minimized':'expanded'/);
+  assert.match(source, /instructionSession\.status==='applied'\?'minimized':'expanded'/);
   assert.match(source, /focus\(\{preventScroll:true\}\)/);
   assert.match(source, /vscode-reduce-motion/);
   assert.match(source, /aria-current/);
