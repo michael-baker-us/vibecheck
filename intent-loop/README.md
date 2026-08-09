@@ -29,6 +29,9 @@ monitor the agent.
 - Optionally ingests normalized local Codex and Claude hook events.
 - Runs explicit, read-only semantic reviews through an installed Codex or Claude CLI, records
   structured findings with file/line evidence, and marks results stale when the diff changes.
+- Creates concise, plain-language Markdown summaries for uncommitted changes, source-to-target branch
+  comparisons, or any two Git commits or refs. Branch comparisons can fetch the latest target from a
+  selected remote without checking out or pulling into the target branch.
 - Makes model routing explicit before every review: Balanced uses `gpt-5.6-terra` or
   `claude-sonnet-5` at medium effort; Deep uses `gpt-5.6-sol` or `claude-opus-5` at high effort.
 - Streams a terminal-style, memory-only transcript into the Review view while the CLI is running,
@@ -41,7 +44,8 @@ VibeCheck has no account, hosted backend, product telemetry, external LLM, or re
 connection. Repository contents, findings, command output, agent metadata, and reports stay on the
 machine.
 
-VibeCheck invokes Codex or Claude only when you select **Run code review** and choose a provider.
+VibeCheck invokes Codex or Claude only when you select **Run code review** or **Summarize changes**
+and choose a provider.
 That provider may send repository content to its configured service under its own authentication
 and data controls. VibeCheck stores only the structured review result in VS Code workspace state.
 
@@ -55,7 +59,7 @@ rotated at 5 MB with one previous segment.
 npm install
 npm run verify
 npm run package:vsix
-code --install-extension packages/vibecheck-0.6.7.vsix --force
+code --install-extension packages/vibecheck-0.6.9.vsix --force
 ```
 
 Reload VS Code and open the VibeCheck icon in the Activity Bar.

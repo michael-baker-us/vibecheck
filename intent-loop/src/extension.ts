@@ -11,13 +11,16 @@ import { GitCollector } from "./collectors/git-collector";
 import { PlanCollector } from "./collectors/plan-collector";
 import { ConfigLoader } from "./config/config-loader";
 import { CodeReviewFinding, CodeReviewSelection } from "./domain/code-review";
+import { ChangeSummaryRange } from "./domain/change-summary";
 import { Finding } from "./domain/findings";
 import { ObservationController } from "./observation-controller";
 import { buildFollowUpPrompt } from "./prompts/follow-up-builder";
 import { buildMarkdownReport } from "./reports/markdown-report";
 import { buildCodeReviewMarkdown } from "./reports/code-review-markdown";
+import { buildChangeSummaryMarkdown } from "./reports/change-summary-markdown";
 import { CodeReviewService } from "./reviews/code-review-service";
 import { WorkspaceStore } from "./storage/workspace-store";
+import { ChangeSummaryService } from "./summaries/change-summary-service";
 import { FindingDiagnostics } from "./ui/diagnostics";
 import { ControlCenterProvider } from "./ui/control-center";
 import { IntentLoopStatusBar } from "./ui/status-bar";
@@ -35,6 +38,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const git = new GitCollector();
   const usageService = new ProviderUsageService();
+  const changeSummaryService = new ChangeSummaryService();
   let providerUsage = usageService.emptySnapshot();
   const adapters = new AdapterInstaller(context.asAbsolutePath("resources/hook-bridge.cjs"));
   const statusBar = new IntentLoopStatusBar();
@@ -126,6 +130,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       inspectCodeReviewFinding(controller, findingId),
     ),
     vscode.commands.registerCommand("intentLoop.previewCodeReview", () => previewCodeReview(controller)),
+    vscode.commands.registerCommand("intentLoop.summarizeChanges", (options?: unknown) =>
+      summarizeChanges(controller, git, changeSummaryService, options)),
     vscode.commands.registerCommand("intentLoop.showVerificationOutput", async (argument?: string) => {
       const name = argument ?? (await chooseVerification(controller, "Select verification output"));
       if (!name) return;
@@ -389,15 +395,7 @@ async function runCodeReview(controller: ObservationController): Promise<void> {
     void vscode.window.showWarningMessage("Trust this VS Code workspace before invoking a review provider.");
     return;
   }
-  const choice = await vscode.window.showQuickPick(
-    [
-      { label: "Codex · Balanced (Default)", description: "gpt-5.6-terra · medium effort", detail: "Faster routine review with balanced capability and latency.", provider: "codex" as const, profile: "balanced" as const, model: "gpt-5.6-terra", effort: "medium" as const },
-      { label: "Codex · Deep", description: "gpt-5.6-sol · high effort", detail: "Quality-first review for large, sensitive, or difficult changes.", provider: "codex" as const, profile: "deep" as const, model: "gpt-5.6-sol", effort: "high" as const },
-      { label: "Claude · Balanced (Default)", description: "claude-sonnet-5 · medium effort", detail: "Faster routine review with balanced capability and latency.", provider: "claude" as const, profile: "balanced" as const, model: "claude-sonnet-5", effort: "medium" as const },
-      { label: "Claude · Deep", description: "claude-opus-5 · high effort", detail: "Quality-first review for large, sensitive, or difficult changes.", provider: "claude" as const, profile: "deep" as const, model: "claude-opus-5", effort: "high" as const },
-    ],
-    { title: "Choose code review model", placeHolder: "The exact model and effort shown here will be passed to the CLI", matchOnDescription: true, matchOnDetail: true },
-  );
+  const choice = await chooseProviderModel("Choose code review provider and model", "review");
   if (!choice) return;
   const selection: CodeReviewSelection = choice;
   try {
@@ -420,6 +418,246 @@ async function runCodeReview(controller: ObservationController): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     void vscode.window.showErrorMessage(`${choice.label} review failed: ${message}`);
   }
+}
+
+async function summarizeChanges(
+  controller: ObservationController,
+  git: GitCollector,
+  service: ChangeSummaryService,
+  options?: unknown,
+): Promise<void> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready") return;
+  if (!vscode.workspace.isTrusted) {
+    void vscode.window.showWarningMessage("Trust this VS Code workspace before invoking a summary provider.");
+    return;
+  }
+
+  const configured = parseChangeSummaryOptions(options);
+  if (configured) {
+    await summarizeConfiguredChanges(snapshot.state.repositoryRoot, snapshot.state.baselineCommit, snapshot.state.headBranch, git, service, configured);
+    return;
+  }
+
+  const scope = await vscode.window.showQuickPick([
+    {
+      label: "Current branch changes",
+      description: "Compare the branch point with HEAD",
+      detail: "Useful when preparing a merge request or pull request.",
+      scope: "branch" as const,
+    },
+    {
+      label: "Two commits or refs",
+      description: "Choose both sides of the comparison",
+      detail: "Accepts commit hashes, tags, and branch names.",
+      scope: "revisions" as const,
+    },
+  ], { title: "Create a Markdown change summary", placeHolder: "Choose what to summarize" });
+  if (!scope) return;
+
+  let baseLabel: string;
+  let targetLabel: string;
+  if (scope.scope === "branch") {
+    const input = await vscode.window.showInputBox({
+      title: "Base branch or ref",
+      prompt: "The shared ancestor with this ref will be compared with HEAD.",
+      placeHolder: "main",
+      value: "main",
+      ignoreFocusOut: true,
+    });
+    if (!input) return;
+    try {
+      const baseRef = await git.resolveCommit(snapshot.state.repositoryRoot, input);
+      baseLabel = `${input.trim()} (merge base)`;
+      targetLabel = "HEAD";
+      const mergeBase = await git.mergeBase(snapshot.state.repositoryRoot, baseRef, snapshot.state.baselineCommit);
+      await createChangeSummary(service, snapshot.state.repositoryRoot, {
+        scope: "commits",
+        base: mergeBase,
+        target: snapshot.state.baselineCommit,
+        baseLabel,
+        targetLabel,
+      });
+    } catch (error) {
+      void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  const baseInput = await vscode.window.showInputBox({
+    title: "Base commit or ref",
+    prompt: "Choose the older side of the comparison.",
+    placeHolder: "main, a tag, or a commit hash",
+    ignoreFocusOut: true,
+  });
+  if (!baseInput) return;
+  const targetInput = await vscode.window.showInputBox({
+    title: "Target commit or ref",
+    prompt: "Choose the newer side of the comparison.",
+    value: "HEAD",
+    ignoreFocusOut: true,
+  });
+  if (!targetInput) return;
+  try {
+    const [base, target] = await Promise.all([
+      git.resolveCommit(snapshot.state.repositoryRoot, baseInput),
+      git.resolveCommit(snapshot.state.repositoryRoot, targetInput),
+    ]);
+    await createChangeSummary(service, snapshot.state.repositoryRoot, {
+      scope: "commits", base, target, baseLabel: baseInput.trim(), targetLabel: targetInput.trim(),
+    });
+  } catch (error) {
+    void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+  }
+}
+
+type ChangeSummaryOptions = {
+  mode: "working-tree" | "branches" | "commits";
+  source?: string;
+  target?: string;
+  remote?: string;
+  fetchLatest: boolean;
+  model: "codex-balanced" | "codex-deep" | "claude-balanced" | "claude-deep";
+};
+
+async function summarizeConfiguredChanges(
+  repositoryRoot: string,
+  head: string,
+  headBranch: string | undefined,
+  git: GitCollector,
+  service: ChangeSummaryService,
+  options: ChangeSummaryOptions,
+): Promise<void> {
+  const selection = summaryModelSelection(options.model);
+  try {
+    if (options.mode === "working-tree") {
+      if (await git.isWorkingTreeClean(repositoryRoot)) {
+        void vscode.window.showInformationMessage("There are no working-tree changes to summarize.");
+        return;
+      }
+      await createChangeSummary(service, repositoryRoot, {
+        scope: "working-tree",
+        base: head,
+        target: head,
+        baseLabel: "HEAD",
+        targetLabel: "working tree",
+      }, selection);
+      return;
+    }
+
+    if (!options.source?.trim() || !options.target?.trim()) {
+      throw new Error(options.mode === "branches" ? "Enter both source and target branches." : "Enter both commit hashes or refs.");
+    }
+    const sourceLabel = options.source.trim();
+    const targetLabel = options.target.trim();
+    const source = await git.resolveCommit(repositoryRoot, sourceLabel);
+    let target: string;
+    let resolvedTargetLabel = targetLabel;
+    if (options.mode === "branches" && options.fetchLatest) {
+      const remote = options.remote?.trim() || "origin";
+      target = await git.fetchBranch(repositoryRoot, remote, targetLabel);
+      resolvedTargetLabel = `${remote}/${targetLabel}`;
+    } else {
+      target = await git.resolveCommit(repositoryRoot, targetLabel);
+    }
+    const base = options.mode === "branches" ? await git.mergeBase(repositoryRoot, target, source) : source;
+    const comparisonTarget = options.mode === "branches" ? source : target;
+    if (!await git.hasChangesBetween(repositoryRoot, base, comparisonTarget)) {
+      void vscode.window.showInformationMessage("The selected revisions have no changes to summarize.");
+      return;
+    }
+    await createChangeSummary(service, repositoryRoot, {
+      scope: "commits",
+      base,
+      target: comparisonTarget,
+      baseLabel: options.mode === "branches" ? `${resolvedTargetLabel} (merge base)` : sourceLabel,
+      targetLabel: options.mode === "branches" ? (sourceLabel || headBranch || "HEAD") : targetLabel,
+    }, selection);
+  } catch (error) {
+    void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+  }
+}
+
+function parseChangeSummaryOptions(value: unknown): ChangeSummaryOptions | undefined {
+  if (!isPlainRecord(value)) return undefined;
+  const modes = ["working-tree", "branches", "commits"];
+  const models = ["codex-balanced", "codex-deep", "claude-balanced", "claude-deep"];
+  if (typeof value.mode !== "string" || !modes.includes(value.mode) || typeof value.model !== "string" || !models.includes(value.model)) return undefined;
+  return {
+    mode: value.mode as ChangeSummaryOptions["mode"],
+    source: typeof value.source === "string" ? value.source : undefined,
+    target: typeof value.target === "string" ? value.target : undefined,
+    remote: typeof value.remote === "string" ? value.remote : undefined,
+    fetchLatest: value.fetchLatest === true,
+    model: value.model as ChangeSummaryOptions["model"],
+  };
+}
+
+function summaryModelSelection(model: ChangeSummaryOptions["model"]): ProviderModelChoice {
+  return providerModelChoices("summary").find((choice) => choice.key === model) ?? providerModelChoices("summary")[0];
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function createChangeSummary(
+  service: ChangeSummaryService,
+  repositoryRoot: string,
+  range: ChangeSummaryRange,
+  requestedSelection?: ProviderModelChoice,
+): Promise<void> {
+  const choice = requestedSelection ?? await chooseProviderModel("Choose change-summary provider and model", "summary");
+  if (!choice) return;
+  try {
+    const summary = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `VibeCheck: Summarizing ${range.baseLabel} to ${range.targetLabel}`, cancellable: true },
+      async (_progress, token) => {
+        const abort = new AbortController();
+        token.onCancellationRequested(() => abort.abort());
+        return service.run({ ...range, ...choice }, repositoryRoot, abort.signal);
+      },
+    );
+    const document = await vscode.workspace.openTextDocument({
+      language: "markdown",
+      content: buildChangeSummaryMarkdown(summary, range, choice),
+    });
+    await vscode.window.showTextDocument(document, { preview: false });
+  } catch (error) {
+    void vscode.window.showErrorMessage(`Change summary failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+type ProviderModelChoice = CodeReviewSelection & vscode.QuickPickItem & { label: string; key: ChangeSummaryOptions["model"] };
+
+async function chooseProviderModel(
+  title: string,
+  purpose: "review" | "summary",
+): Promise<ProviderModelChoice | undefined> {
+  return vscode.window.showQuickPick<ProviderModelChoice>(
+    providerModelChoices(purpose),
+    {
+      title,
+      placeHolder: "The selected provider, exact model, and effort will be passed to its CLI",
+      matchOnDescription: true,
+      matchOnDetail: true,
+    },
+  );
+}
+
+function providerModelChoices(purpose: "review" | "summary"): ProviderModelChoice[] {
+  const balancedDetail = purpose === "summary"
+    ? "Recommended for concise summaries with lower latency and cost."
+    : "Faster routine review with balanced capability and latency.";
+  const deepDetail = purpose === "summary"
+    ? "Higher-cost option for unusually large or complex comparisons."
+    : "Quality-first review for large, sensitive, or difficult changes.";
+  return [
+    { key: "codex-balanced", label: "Codex · Balanced (Default)", description: "gpt-5.6-terra · medium effort", detail: balancedDetail, provider: "codex", profile: "balanced", model: "gpt-5.6-terra", effort: "medium" },
+    { key: "codex-deep", label: "Codex · Deep", description: "gpt-5.6-sol · high effort", detail: deepDetail, provider: "codex", profile: "deep", model: "gpt-5.6-sol", effort: "high" },
+    { key: "claude-balanced", label: "Claude · Balanced (Default)", description: "claude-sonnet-5 · medium effort", detail: balancedDetail, provider: "claude", profile: "balanced", model: "claude-sonnet-5", effort: "medium" },
+    { key: "claude-deep", label: "Claude · Deep", description: "claude-opus-5 · high effort", detail: deepDetail, provider: "claude", profile: "deep", model: "claude-opus-5", effort: "high" },
+  ];
 }
 
 async function inspectCodeReviewFinding(

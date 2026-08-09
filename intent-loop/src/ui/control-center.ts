@@ -5,7 +5,7 @@ import { categoryFor, calculateReadiness, missingRecommendedCategories } from ".
 import { ObservationSnapshot } from "../domain/observation-state";
 import { ProviderUsageSnapshot } from "../usage/provider-usage-service";
 
-type WebviewMessage = { action?: unknown; id?: unknown };
+type WebviewMessage = { action?: unknown; id?: unknown; options?: unknown };
 
 export class ControlCenterProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
@@ -60,6 +60,10 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
 
   private async handle(message: WebviewMessage): Promise<void> {
     if (typeof message.action !== "string") return;
+    if (message.action === "summarize-changes" && message.options !== undefined) {
+      await vscode.commands.executeCommand("intentLoop.summarizeChanges", message.options);
+      return;
+    }
     const id = typeof message.id === "string" ? message.id : undefined;
     const simpleCommands: Record<string, string> = {
       "select-plan": "intentLoop.selectPlan",
@@ -72,6 +76,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       "run-review": "intentLoop.runCodeReview",
       "clear-review": "intentLoop.clearCodeReview",
       "preview-review": "intentLoop.previewCodeReview",
+      "summarize-changes": "intentLoop.summarizeChanges",
       "check-output-menu": "intentLoop.showVerificationOutput",
       "copy-prompt": "intentLoop.copyPrompt",
       export: "intentLoop.createReport",
@@ -213,6 +218,13 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     .danger { color:var(--vscode-errorForeground)!important; }
     .footer { text-align:center; font-size:11px; color:var(--panel-muted); padding:4px; overflow-wrap:anywhere; }
     .section-intro { color:var(--panel-muted); font-size:11px; padding:0 1px; }
+    .form-grid { display:grid; gap:9px; }
+    .form-field { display:grid; gap:4px; color:var(--panel-muted); font-size:11px; }
+    .form-field > span { font-weight:600; color:var(--vscode-foreground); }
+    .form-field input, .form-field select { width:100%; min-width:0; box-sizing:border-box; padding:6px 7px; color:var(--vscode-input-foreground); background:var(--vscode-input-background); border:1px solid var(--vscode-input-border,var(--panel-border)); border-radius:3px; font:inherit; }
+    .form-field input:focus, .form-field select:focus { outline:1px solid var(--vscode-focusBorder); outline-offset:-1px; }
+    .check-field { display:flex; align-items:flex-start; gap:7px; color:var(--vscode-foreground); font-size:11px; }
+    .check-field input { margin:1px 0 0; }
     .review-preview { display:grid; gap:7px; padding:9px; border:1px solid var(--panel-border); border-radius:6px; background:var(--panel-background); }
     .review-preview-head { display:flex; align-items:center; gap:7px; font-weight:650; }
     .review-pulse { width:8px; height:8px; border-radius:50%; background:var(--vscode-progressBar-background); box-shadow:0 0 0 0 color-mix(in srgb,var(--vscode-progressBar-background) 55%,transparent); animation:review-pulse 1.6s infinite; }
@@ -311,13 +323,13 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     else if(unfinished){ nextCopy.append(el('strong','','Refresh required evidence'),el('span','','Run pending or stale checks against the current files.')); next.append(nextCopy,button('Run checks','run-all',undefined,'primary')); }
     else { nextCopy.append(el('strong','','Capture the evidence'),el('span','','All required checks are current. Export a review snapshot.')); next.append(nextCopy,button('Create report','export',undefined,'primary')); }
     hero.append(next);
-    const primary=el('div','actions'); primary.append(button('Run code review','run-review',undefined,'primary'),button('Run all checks','run-all'),button('Create report','export'),button('Copy agent follow-up','copy-prompt'),button('Open active plan','open-plan',undefined,'ghost')); hero.append(primary);
+    const primary=el('div','actions'),summaryNav=button('Summarize changes','summarize-changes'); summaryNav.onclick=()=>showView('review'); primary.append(button('Run code review','run-review',undefined,'primary'),summaryNav,button('Run all checks','run-all'),button('Create report','export'),button('Copy agent follow-up','copy-prompt'),button('Open active plan','open-plan',undefined,'ghost')); hero.append(primary);
     pages.overview.append(hero,qualityMetrics(true));
 
-    pages.review.append(el('div','section-intro','Ask Codex or Claude to review the current uncommitted diff. Results are local VibeCheck state and become stale when the diff changes.'));
+    pages.review.append(el('div','section-intro','Ask Codex or Claude to review the current uncommitted diff, or create a plain-language Markdown summary between Git revisions.'));
     const review=section('Code review',s.codeReview?s.codeReview.findings.length:'not run');
     const reviewState=s.codeReview;
-        if(!reviewState){ const c=el('div','callout'); c.append(el('strong','','No semantic review yet'),el('p','','Balanced: Codex gpt-5.6-terra or Claude claude-sonnet-5 at medium effort.'),el('p','','Deep: Codex gpt-5.6-sol or Claude claude-opus-5 at high effort.')); review.content.append(c,button('Choose model and run review','run-review',undefined,'primary')); }
+      if(!reviewState){ const c=el('div','callout'); c.append(el('strong','','No semantic review yet'),el('p','','Balanced: Codex gpt-5.6-terra or Claude claude-sonnet-5 at medium effort.'),el('p','','Deep: Codex gpt-5.6-sol or Claude claude-opus-5 at high effort.')); review.content.append(c,button('Choose model and run review','run-review',undefined,'primary')); }
     else {
       const tone=reviewState.status==='completed'?'ready':reviewState.status==='failed'?'blocked':'incomplete';
       const head=el('div','item-head'); head.append(el('span','item-title',(reviewState.provider==='codex'?'Codex':'Claude')+' · '+reviewState.profile+' review'),el('span','badge '+tone,reviewState.status));
@@ -335,6 +347,24 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       reviewState.findings.forEach(f=>{ const item=el('div','item'),h=el('div','item-head'); h.append(el('span','item-title',f.title),el('span','badge '+(f.severity==='high'?'blocked':f.severity==='medium'?'incomplete':'neutral'),f.severity)); item.append(h,el('div','meta',(f.path||'Repository-level')+(f.line?':'+f.line:'')),el('p','',f.explanation)); if(f.path){ const a=el('div','item-actions'); a.append(button('Inspect','inspect-review',f.id,'secondary')); item.append(a); } review.content.append(item); });
     }
     pages.review.append(review.card);
+    const changeSummary=section('Change summary','Markdown');
+    const summaryCallout=el('div','callout'); summaryCallout.append(el('strong','','Plain-language merge summary'),el('p','',s.changedFiles.length+' uncommitted file change'+(s.changedFiles.length===1?' is':'s are')+' available. Choose exactly what should be compared.'));
+    const savedSummary=(vscode.getState()||{}).summaryOptions||{},form=el('div','form-grid'),modeField=el('label','form-field'),modeLabel=el('span','','Compare'),mode=el('select','');
+    [['working-tree','Working tree changes vs HEAD'],['branches','Source branch → target branch'],['commits','Two commits or refs']].forEach(([value,label])=>{ const option=el('option','',label); option.value=value; mode.append(option); }); mode.value=savedSummary.mode||(s.changedFiles.length?'working-tree':'branches'); modeField.append(modeLabel,mode);
+    const sourceField=el('label','form-field'),sourceLabel=el('span','','Source branch'),source=el('input',''); source.type='text'; source.value=savedSummary.source||s.headBranch||'HEAD'; source.placeholder='feature/my-change'; sourceField.append(sourceLabel,source);
+    const targetField=el('label','form-field'),targetLabel=el('span','','Target branch'),target=el('input',''); target.type='text'; target.value=savedSummary.target||'main'; target.placeholder='main'; targetField.append(targetLabel,target);
+    const fetchField=el('label','check-field'),fetchLatest=el('input',''); fetchLatest.type='checkbox'; fetchLatest.checked=savedSummary.fetchLatest===true; fetchField.append(fetchLatest,el('span','','Fetch the latest target branch from its remote before comparing'));
+    const remoteField=el('label','form-field'),remoteLabel=el('span','','Remote'),remote=el('input',''); remote.type='text'; remote.value=savedSummary.remote||'origin'; remote.placeholder='origin'; remoteField.append(remoteLabel,remote);
+    const modelField=el('label','form-field'),modelLabel=el('span','','Provider and model'),model=el('select','');
+    [['codex-balanced','Codex · gpt-5.6-terra · medium effort (Recommended)'],['codex-deep','Codex · gpt-5.6-sol · high effort'],['claude-balanced','Claude · claude-sonnet-5 · medium effort (Recommended)'],['claude-deep','Claude · claude-opus-5 · high effort']].forEach(([value,label])=>{ const option=el('option','',label); option.value=value; model.append(option); }); model.value=savedSummary.model||'codex-balanced'; modelField.append(modelLabel,model);
+    const summaryOptions=()=>({mode:mode.value,source:source.value,target:target.value,fetchLatest:fetchLatest.checked,remote:remote.value,model:model.value});
+    const saveSummaryOptions=()=>vscode.setState({...vscode.getState(),summaryOptions:summaryOptions()});
+    const updateSummaryForm=()=>{ const working=mode.value==='working-tree',branches=mode.value==='branches'; sourceField.hidden=working; targetField.hidden=working; fetchField.hidden=!branches; remoteField.hidden=!branches||!fetchLatest.checked; sourceLabel.textContent=branches?'Source branch':'From commit or ref'; targetLabel.textContent=branches?'Target branch':'To commit or ref'; source.placeholder=branches?'feature/my-change':'older commit hash or ref'; target.placeholder=branches?'main':'newer commit hash or ref'; };
+    mode.onchange=()=>{ updateSummaryForm(); saveSummaryOptions(); }; fetchLatest.onchange=()=>{ updateSummaryForm(); saveSummaryOptions(); }; [source,target,remote].forEach(input=>input.onchange=saveSummaryOptions); model.onchange=saveSummaryOptions; updateSummaryForm();
+    const createSummary=button('Create Markdown summary','',undefined,'primary'); createSummary.onclick=()=>{ saveSummaryOptions(); vscode.postMessage({action:'summarize-changes',options:summaryOptions()}); };
+    form.append(modeField,sourceField,targetField,fetchField,remoteField,modelField,createSummary);
+    changeSummary.content.append(summaryCallout,form);
+    pages.review.append(changeSummary.card);
 
     const usageState=data.providerUsage,usage=section('Claude & Codex usage',usageState.status==='loading'?'refreshing':'provider reported');
     usage.content.append(el('div','section-intro','Account usage reported directly by Codex /status and Claude /usage. Results stay in memory and refresh on demand.'));

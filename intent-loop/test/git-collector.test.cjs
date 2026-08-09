@@ -31,6 +31,10 @@ test("discovers a repository and captures content-aware changes", async (context
   assert.match(repository.head, /^[0-9a-f]{40}$/);
   assert.equal(repository.branch, git("branch", "--show-current").trim());
   assert.equal(repository.subject, "baseline");
+  assert.equal(await collector.resolveCommit(repository.root, "HEAD"), repository.head);
+  assert.equal(await collector.mergeBase(repository.root, repository.head, "HEAD"), repository.head);
+  assert.equal(await collector.hasChangesBetween(repository.root, repository.head, "HEAD"), false);
+  await assert.rejects(() => collector.resolveCommit(repository.root, "missing-ref"), /Git revision not found/);
   assert.deepEqual(await collector.collectChanges(repository.root, repository.head), []);
   assert.equal(await collector.isWorkingTreeClean(repository.root), true);
 

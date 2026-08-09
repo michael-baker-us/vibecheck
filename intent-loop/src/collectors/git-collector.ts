@@ -117,6 +117,41 @@ export class GitCollector {
     return output.trim().length === 0;
   }
 
+  public async resolveCommit(repositoryRoot: string, revision: string): Promise<string> {
+    const candidate = revision.trim();
+    if (!candidate) throw new Error("Enter a Git commit or ref.");
+    try {
+      return (await this.run(["rev-parse", "--verify", `${candidate}^{commit}`], repositoryRoot)).trim();
+    } catch {
+      throw new Error(`Git revision not found: ${candidate}`);
+    }
+  }
+
+  public async mergeBase(repositoryRoot: string, left: string, right: string): Promise<string> {
+    try {
+      return (await this.run(["merge-base", left, right], repositoryRoot)).trim();
+    } catch {
+      throw new Error("The selected revisions do not share a merge base.");
+    }
+  }
+
+  public async fetchBranch(repositoryRoot: string, remote: string, branch: string): Promise<string> {
+    const remoteName = remote.trim();
+    const branchName = branch.trim();
+    if (!remoteName || !branchName) throw new Error("Enter both a remote and target branch.");
+    try {
+      await this.run(["fetch", "--no-tags", remoteName, branchName], repositoryRoot);
+      return await this.resolveCommit(repositoryRoot, `refs/remotes/${remoteName}/${branchName}`);
+    } catch {
+      throw new Error(`Could not fetch ${remoteName}/${branchName}. Check that the remote and branch exist.`);
+    }
+  }
+
+  public async hasChangesBetween(repositoryRoot: string, base: string, target: string): Promise<boolean> {
+    const output = await this.run(["diff", "--name-only", base, target, "--"], repositoryRoot);
+    return output.trim().length > 0;
+  }
+
   private parseNameStatus(output: string): ChangedPath[] {
     const tokens = this.parseNullSeparated(output);
     const result: ChangedPath[] = [];
