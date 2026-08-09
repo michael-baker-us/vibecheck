@@ -9,13 +9,15 @@ test("ships a syntactically valid task-oriented Control Center", () => {
 
   assert.ok(script, "expected an embedded webview script");
   assert.doesNotThrow(() => new Function(script));
-  for (const view of ["Overview", "Review", "Quality", "Attention", "Workspace"]) {
+  for (const view of ["Overview", "Review", "Summarize", "Usage", "Quality", "Attention", "Workspace"]) {
     assert.match(source, new RegExp(`'${view}'`));
   }
   assert.match(source, /Release readiness/);
   assert.match(source, /next-action/);
   assert.match(source, /Run code review/);
   assert.match(source, /Summarize changes/);
+  assert.match(source, /showView\('summarize'\)/);
+  assert.match(source, /pages\.summarize\.append\(changeSummary\.card\)/);
   assert.match(source, /section\('Change summary','Markdown'\)/);
   assert.match(source, /Working tree changes vs HEAD/);
   assert.match(source, /Source branch → target branch/);
@@ -23,6 +25,7 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /Clear review/);
   assert.match(source, /intentLoop\.clearCodeReview/);
   assert.match(source, /Claude & Codex usage/);
+  assert.match(source, /pages\.usage\.append\(usage\.card\)/);
   assert.match(source, /Codex \/status and Claude \/usage/);
   assert.match(source, /Refresh usage/);
   assert.match(source, /usage-track/);

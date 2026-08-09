@@ -5,6 +5,8 @@ const { buildChangeSummaryMarkdown } = require("../dist/reports/change-summary-m
 const {
   claudeSummaryArguments,
   codexSummaryArguments,
+  normalizeChangeSummaryEvent,
+  normalizeChangeSummaryTranscriptEvent,
   parseChangeSummaryOutput,
 } = require("../dist/summaries/change-summary-service");
 
@@ -38,6 +40,38 @@ test("instructs providers to include untracked working-tree changes", () => {
   const args = codexSummaryArguments({ ...request, scope: "working-tree" }, "/tmp/schema.json", "/tmp/result.json");
   assert.match(args.at(-1), /git status --short/);
   assert.match(args.at(-1), /untracked files/);
+});
+
+test("normalizes provider events into live change-summary progress", () => {
+  assert.deepEqual(
+    normalizeChangeSummaryEvent("codex", { type: "item.started", item: { type: "reasoning" } }),
+    { label: "Identifying meaningful changes" },
+  );
+  assert.deepEqual(
+    normalizeChangeSummaryEvent("claude", {
+      type: "assistant",
+      message: { content: [{ type: "tool_use", name: "Read", input: { file_path: "/repo/src/ui/panel.ts" } }] },
+    }),
+    { label: "Reading changed code", detail: "src/ui/panel.ts" },
+  );
+  assert.equal(
+    normalizeChangeSummaryEvent("claude", { type: "assistant", message: { content: [{ type: "text", text: "private reasoning" }] } }),
+    undefined,
+  );
+});
+
+test("normalizes provider events into the shared CLI transcript", () => {
+  assert.deepEqual(
+    normalizeChangeSummaryTranscriptEvent("codex", { type: "turn.started" }),
+    [{ kind: "status", label: "Summary started" }],
+  );
+  assert.deepEqual(
+    normalizeChangeSummaryTranscriptEvent("claude", {
+      type: "assistant",
+      message: { content: [{ type: "tool_use", name: "Bash", input: { command: "git diff --stat" } }] },
+    }),
+    [{ kind: "tool", label: "Bash", content: '{\n  "command": "git diff --stat"\n}' }],
+  );
 });
 
 test("parses provider output and omits empty optional sections", () => {

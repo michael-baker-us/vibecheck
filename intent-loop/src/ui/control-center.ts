@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 import { IntentLoopConfiguration } from "../domain/configuration";
+import { ChangeSummarySession } from "../domain/change-summary";
 import { categoryFor, calculateReadiness, missingRecommendedCategories } from "../domain/quality-gates";
 import { ObservationSnapshot } from "../domain/observation-state";
 import { ProviderUsageSnapshot } from "../usage/provider-usage-service";
@@ -15,6 +16,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     private readonly getConfiguration: () => IntentLoopConfiguration,
     private readonly getConfigurationError: () => string | undefined,
     private readonly getReviewTranscript: () => Array<{ at: string; kind: string; label: string; content?: string }>,
+    private readonly getChangeSummarySession: () => ChangeSummarySession | undefined,
     private readonly getProviderUsage: () => ProviderUsageSnapshot,
   ) {}
 
@@ -52,6 +54,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           ),
           configurationError: this.getConfigurationError(),
           reviewTranscript: this.getReviewTranscript(),
+          changeSummarySession: this.getChangeSummarySession(),
           providerUsage: this.getProviderUsage(),
         }
       : snapshot;
@@ -304,8 +307,8 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     brandCopy.append(el('div','brand-name','VibeCheck'),el('div','brand-context',(s.headBranch||'detached HEAD')+' · '+s.baselineCommit.slice(0,8)));
     brand.append(el('div','brand-mark','V'),brandCopy); product.append(brand,button('Refresh','refresh',undefined,'ghost')); app.append(product);
 
-    const pages={overview:el('section','page'),review:el('section','page'),quality:el('section','page'),attention:el('section','page'),workspace:el('section','page')};
-    const nav=el('nav','nav'), navItems=[['overview','Overview'],['review','Review'],['quality','Quality'],['attention','Attention'+(open.length?' · '+open.length:'')],['workspace','Workspace']];
+    const pages={overview:el('section','page'),review:el('section','page'),summarize:el('section','page'),usage:el('section','page'),quality:el('section','page'),attention:el('section','page'),workspace:el('section','page')};
+    const nav=el('nav','nav'), navItems=[['overview','Overview'],['review','Review'],['summarize','Summarize'],['usage','Usage'],['quality','Quality'],['attention','Attention'+(open.length?' · '+open.length:'')],['workspace','Workspace']];
     const savedView=(vscode.getState()||{}).activeView, initialView=pages[savedView]?savedView:'overview';
     const showView=view=>{ Object.entries(pages).forEach(([key,page])=>page.hidden=key!==view); nav.querySelectorAll('.nav-btn').forEach(item=>item.setAttribute('aria-selected',String(item.dataset.view===view))); vscode.setState({...vscode.getState(),activeView:view}); };
     navItems.forEach(([view,label])=>{ const item=el('button','nav-btn',label); item.type='button'; item.dataset.view=view; item.setAttribute('aria-selected','false'); item.onclick=()=>showView(view); nav.append(item); }); app.append(nav);
@@ -323,10 +326,10 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     else if(unfinished){ nextCopy.append(el('strong','','Refresh required evidence'),el('span','','Run pending or stale checks against the current files.')); next.append(nextCopy,button('Run checks','run-all',undefined,'primary')); }
     else { nextCopy.append(el('strong','','Capture the evidence'),el('span','','All required checks are current. Export a review snapshot.')); next.append(nextCopy,button('Create report','export',undefined,'primary')); }
     hero.append(next);
-    const primary=el('div','actions'),summaryNav=button('Summarize changes','summarize-changes'); summaryNav.onclick=()=>showView('review'); primary.append(button('Run code review','run-review',undefined,'primary'),summaryNav,button('Run all checks','run-all'),button('Create report','export'),button('Copy agent follow-up','copy-prompt'),button('Open active plan','open-plan',undefined,'ghost')); hero.append(primary);
+    const primary=el('div','actions'),summaryNav=button('Summarize changes','summarize-changes'); summaryNav.onclick=()=>showView('summarize'); primary.append(button('Run code review','run-review',undefined,'primary'),summaryNav,button('Run all checks','run-all'),button('Create report','export'),button('Copy agent follow-up','copy-prompt'),button('Open active plan','open-plan',undefined,'ghost')); hero.append(primary);
     pages.overview.append(hero,qualityMetrics(true));
 
-    pages.review.append(el('div','section-intro','Ask Codex or Claude to review the current uncommitted diff, or create a plain-language Markdown summary between Git revisions.'));
+    pages.review.append(el('div','section-intro','Ask Codex or Claude to review the current uncommitted diff for concrete, actionable defects.'));
     const review=section('Code review',s.codeReview?s.codeReview.findings.length:'not run');
     const reviewState=s.codeReview;
       if(!reviewState){ const c=el('div','callout'); c.append(el('strong','','No semantic review yet'),el('p','','Balanced: Codex gpt-5.6-terra or Claude claude-sonnet-5 at medium effort.'),el('p','','Deep: Codex gpt-5.6-sol or Claude claude-opus-5 at high effort.')); review.content.append(c,button('Choose model and run review','run-review',undefined,'primary')); }
@@ -347,6 +350,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       reviewState.findings.forEach(f=>{ const item=el('div','item'),h=el('div','item-head'); h.append(el('span','item-title',f.title),el('span','badge '+(f.severity==='high'?'blocked':f.severity==='medium'?'incomplete':'neutral'),f.severity)); item.append(h,el('div','meta',(f.path||'Repository-level')+(f.line?':'+f.line:'')),el('p','',f.explanation)); if(f.path){ const a=el('div','item-actions'); a.append(button('Inspect','inspect-review',f.id,'secondary')); item.append(a); } review.content.append(item); });
     }
     pages.review.append(review.card);
+    pages.summarize.append(el('div','section-intro','Create a plain-language Markdown summary for working-tree, branch, or revision changes.'));
     const changeSummary=section('Change summary','Markdown');
     const summaryCallout=el('div','callout'); summaryCallout.append(el('strong','','Plain-language merge summary'),el('p','',s.changedFiles.length+' uncommitted file change'+(s.changedFiles.length===1?' is':'s are')+' available. Choose exactly what should be compared.'));
     const savedSummary=(vscode.getState()||{}).summaryOptions||{},form=el('div','form-grid'),modeField=el('label','form-field'),modeLabel=el('span','','Compare'),mode=el('select','');
@@ -361,16 +365,19 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     const saveSummaryOptions=()=>vscode.setState({...vscode.getState(),summaryOptions:summaryOptions()});
     const updateSummaryForm=()=>{ const working=mode.value==='working-tree',branches=mode.value==='branches'; sourceField.hidden=working; targetField.hidden=working; fetchField.hidden=!branches; remoteField.hidden=!branches||!fetchLatest.checked; sourceLabel.textContent=branches?'Source branch':'From commit or ref'; targetLabel.textContent=branches?'Target branch':'To commit or ref'; source.placeholder=branches?'feature/my-change':'older commit hash or ref'; target.placeholder=branches?'main':'newer commit hash or ref'; };
     mode.onchange=()=>{ updateSummaryForm(); saveSummaryOptions(); }; fetchLatest.onchange=()=>{ updateSummaryForm(); saveSummaryOptions(); }; [source,target,remote].forEach(input=>input.onchange=saveSummaryOptions); model.onchange=saveSummaryOptions; updateSummaryForm();
-    const createSummary=button('Create Markdown summary','',undefined,'primary'); createSummary.onclick=()=>{ saveSummaryOptions(); vscode.postMessage({action:'summarize-changes',options:summaryOptions()}); };
+    const summarySession=data.changeSummarySession,summaryRunning=summarySession?.status==='running';
+    const createSummary=button(summaryRunning?'Summary running…':'Create Markdown summary','',undefined,'primary'); createSummary.disabled=summaryRunning; createSummary.onclick=()=>{ saveSummaryOptions(); vscode.postMessage({action:'summarize-changes',options:summaryOptions()}); };
     form.append(modeField,sourceField,targetField,fetchField,remoteField,modelField,createSummary);
     changeSummary.content.append(summaryCallout,form);
-    pages.review.append(changeSummary.card);
+    if(summarySession){ const tone=summarySession.status==='completed'?'ready':summarySession.status==='failed'?'blocked':'incomplete',head=el('div','item-head'); head.append(el('span','item-title',(summarySession.provider==='codex'?'Codex':'Claude')+' · '+summarySession.profile+' summary'),el('span','badge '+tone,summarySession.status)); const session=el('div','item'); session.append(head,el('div','meta',summarySession.baseLabel+' → '+summarySession.targetLabel+' · '+summarySession.model+' · started '+new Date(summarySession.startedAt).toLocaleString())); if(summarySession.error)session.append(el('div','callout danger',summarySession.error)); changeSummary.content.append(session); const transcript=summarySession.transcript||[]; if(transcript.length){ const terminal=el('div','review-terminal'),terminalHead=el('div','review-terminal-head'); terminalHead.append(el('strong','',summaryRunning?'Live CLI summary':'CLI summary transcript'),el('span','',summaryRunning?'streaming · memory only':'memory only')); terminal.append(terminalHead); transcript.forEach(entry=>{ const row=el('div','review-terminal-entry '+entry.kind),meta=el('div','review-terminal-meta'); meta.append(el('span','review-terminal-kind',entry.kind),el('time','',new Date(entry.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})),el('strong','',entry.label)); row.append(meta); if(entry.content)row.append(el('pre','',entry.content)); terminal.append(row); }); changeSummary.content.append(terminal); requestAnimationFrame(()=>{ terminal.scrollTop=terminal.scrollHeight; }); } }
+    pages.summarize.append(changeSummary.card);
 
+    pages.usage.append(el('div','section-intro','Inspect current account limits reported by the locally installed provider CLIs.'));
     const usageState=data.providerUsage,usage=section('Claude & Codex usage',usageState.status==='loading'?'refreshing':'provider reported');
     usage.content.append(el('div','section-intro','Account usage reported directly by Codex /status and Claude /usage. Results stay in memory and refresh on demand.'));
     if(usageState.status==='idle')usage.content.append(el('div','empty','Usage has not been loaded yet.'));
     usageState.providers.forEach(provider=>{ const label=provider.provider==='codex'?'Codex':'Claude',item=el('div','item'),head=el('div','item-head'); head.append(el('span','item-title',label+' '+provider.source),el('span','badge '+(provider.status==='ready'?'ready':'blocked'),provider.status)); item.append(head); if(provider.summary)item.append(el('div','meta',provider.summary)); if(provider.detail)item.append(el('div','callout danger',provider.detail)); provider.windows.forEach(window=>{ const row=el('div','usage-window'),rowHead=el('div','usage-window-head'),percentUsed=Math.max(0,Math.min(100,Number(window.usedPercent))); rowHead.append(el('span','',window.label),el('strong','',Number(window.usedPercent).toFixed(0)+'% used')); const track=el('div','usage-track'),fill=el('div','usage-fill '+(percentUsed>=90?'danger':percentUsed>=70?'warning':'')); fill.style.width=percentUsed+'%'; track.append(fill); row.append(rowHead,track); if(window.resetText){ const iso=/^\d{4}-\d{2}-\d{2}T/.test(window.resetText); row.append(el('div','meta','Resets '+(iso?new Date(window.resetText).toLocaleString():window.resetText))); } item.append(row); }); usage.content.append(item); });
-    const usageActions=el('div','item-actions'),refreshUsage=button(usageState.status==='loading'?'Refreshing usage…':'Refresh usage','refresh-provider-usage',undefined,'secondary'); refreshUsage.disabled=usageState.status==='loading'; usageActions.append(refreshUsage); usage.content.append(usageActions); if(usageState.updatedAt)usage.content.append(el('div','meta','Updated '+new Date(usageState.updatedAt).toLocaleString())); pages.review.append(usage.card);
+    const usageActions=el('div','item-actions'),refreshUsage=button(usageState.status==='loading'?'Refreshing usage…':'Refresh usage','refresh-provider-usage',undefined,'secondary'); refreshUsage.disabled=usageState.status==='loading'; usageActions.append(refreshUsage); usage.content.append(usageActions); if(usageState.updatedAt)usage.content.append(el('div','meta','Updated '+new Date(usageState.updatedAt).toLocaleString())); pages.usage.append(usage.card);
 
     const gates=section('Quality gates',s.verification.length);
     pages.quality.append(el('div','section-intro','Run, inspect, and compare repository-owned checks. Passing evidence becomes stale when relevant inputs change.'));

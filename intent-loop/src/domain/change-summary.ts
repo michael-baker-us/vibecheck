@@ -1,4 +1,5 @@
 import { CodeReviewSelection } from "./code-review";
+import { CodeReviewTranscriptEntry } from "./code-review";
 
 export type ChangeSummaryRange = {
   scope: "working-tree" | "commits";
@@ -21,4 +22,12 @@ export type ChangeSummaryResult = {
   highlights: ChangeSummaryHighlight[];
   impact?: string;
   validation?: string;
+};
+
+export type ChangeSummarySession = ChangeSummaryRequest & {
+  status: "running" | "completed" | "failed";
+  startedAt: string;
+  finishedAt?: string;
+  transcript: CodeReviewTranscriptEntry[];
+  error?: string;
 };

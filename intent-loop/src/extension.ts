@@ -11,7 +11,7 @@ import { GitCollector } from "./collectors/git-collector";
 import { PlanCollector } from "./collectors/plan-collector";
 import { ConfigLoader } from "./config/config-loader";
 import { CodeReviewFinding, CodeReviewSelection } from "./domain/code-review";
-import { ChangeSummaryRange } from "./domain/change-summary";
+import { ChangeSummaryRange, ChangeSummarySession } from "./domain/change-summary";
 import { Finding } from "./domain/findings";
 import { ObservationController } from "./observation-controller";
 import { buildFollowUpPrompt } from "./prompts/follow-up-builder";
@@ -39,6 +39,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const git = new GitCollector();
   const usageService = new ProviderUsageService();
   const changeSummaryService = new ChangeSummaryService();
+  let changeSummarySession: ChangeSummarySession | undefined;
   let providerUsage = usageService.emptySnapshot();
   const adapters = new AdapterInstaller(context.asAbsolutePath("resources/hook-bridge.cjs"));
   const statusBar = new IntentLoopStatusBar();
@@ -49,6 +50,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => controller.getConfiguration(),
     () => controller.getConfigurationError(),
     () => controller.getReviewTranscript(),
+    () => changeSummarySession,
     () => providerUsage,
   );
   controller = new ObservationController(
@@ -131,7 +133,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.commands.registerCommand("intentLoop.previewCodeReview", () => previewCodeReview(controller)),
     vscode.commands.registerCommand("intentLoop.summarizeChanges", (options?: unknown) =>
-      summarizeChanges(controller, git, changeSummaryService, options)),
+      summarizeChanges(controller, git, changeSummaryService, (session) => {
+        changeSummarySession = session;
+        controlCenter.refresh();
+      }, options)),
     vscode.commands.registerCommand("intentLoop.showVerificationOutput", async (argument?: string) => {
       const name = argument ?? (await chooseVerification(controller, "Select verification output"));
       if (!name) return;
@@ -424,6 +429,7 @@ async function summarizeChanges(
   controller: ObservationController,
   git: GitCollector,
   service: ChangeSummaryService,
+  onSessionChanged: (session: ChangeSummarySession) => void,
   options?: unknown,
 ): Promise<void> {
   const snapshot = controller.getSnapshot();
@@ -435,7 +441,7 @@ async function summarizeChanges(
 
   const configured = parseChangeSummaryOptions(options);
   if (configured) {
-    await summarizeConfiguredChanges(snapshot.state.repositoryRoot, snapshot.state.baselineCommit, snapshot.state.headBranch, git, service, configured);
+    await summarizeConfiguredChanges(snapshot.state.repositoryRoot, snapshot.state.baselineCommit, snapshot.state.headBranch, git, service, onSessionChanged, configured);
     return;
   }
 
@@ -477,7 +483,7 @@ async function summarizeChanges(
         target: snapshot.state.baselineCommit,
         baseLabel,
         targetLabel,
-      });
+      }, undefined, onSessionChanged);
     } catch (error) {
       void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
     }
@@ -505,7 +511,7 @@ async function summarizeChanges(
     ]);
     await createChangeSummary(service, snapshot.state.repositoryRoot, {
       scope: "commits", base, target, baseLabel: baseInput.trim(), targetLabel: targetInput.trim(),
-    });
+    }, undefined, onSessionChanged);
   } catch (error) {
     void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
   }
@@ -526,6 +532,7 @@ async function summarizeConfiguredChanges(
   headBranch: string | undefined,
   git: GitCollector,
   service: ChangeSummaryService,
+  onSessionChanged: (session: ChangeSummarySession) => void,
   options: ChangeSummaryOptions,
 ): Promise<void> {
   const selection = summaryModelSelection(options.model);
@@ -541,7 +548,7 @@ async function summarizeConfiguredChanges(
         target: head,
         baseLabel: "HEAD",
         targetLabel: "working tree",
-      }, selection);
+      }, selection, onSessionChanged);
       return;
     }
 
@@ -572,7 +579,7 @@ async function summarizeConfiguredChanges(
       target: comparisonTarget,
       baseLabel: options.mode === "branches" ? `${resolvedTargetLabel} (merge base)` : sourceLabel,
       targetLabel: options.mode === "branches" ? (sourceLabel || headBranch || "HEAD") : targetLabel,
-    }, selection);
+    }, selection, onSessionChanged);
   } catch (error) {
     void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
   }
@@ -606,24 +613,51 @@ async function createChangeSummary(
   repositoryRoot: string,
   range: ChangeSummaryRange,
   requestedSelection?: ProviderModelChoice,
+  onSessionChanged?: (session: ChangeSummarySession) => void,
 ): Promise<void> {
   const choice = requestedSelection ?? await chooseProviderModel("Choose change-summary provider and model", "summary");
   if (!choice) return;
+  const startedAt = new Date().toISOString();
+  let session: ChangeSummarySession = {
+    ...range,
+    ...choice,
+    status: "running",
+    startedAt,
+    transcript: [{ at: startedAt, kind: "status", label: `Starting ${choice.provider === "codex" ? "Codex" : "Claude"} summary` }],
+  };
+  const updateSession = (change: Partial<ChangeSummarySession>) => {
+    session = { ...session, ...change };
+    onSessionChanged?.(session);
+  };
+  updateSession({});
   try {
     const summary = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: `VibeCheck: Summarizing ${range.baseLabel} to ${range.targetLabel}`, cancellable: true },
-      async (_progress, token) => {
+      async (progress, token) => {
         const abort = new AbortController();
         token.onCancellationRequested(() => abort.abort());
-        return service.run({ ...range, ...choice }, repositoryRoot, abort.signal);
+        progress.report({ message: `Starting ${choice.provider === "codex" ? "Codex" : "Claude"} CLI…` });
+        return service.run({ ...range, ...choice }, repositoryRoot, abort.signal, (event) => {
+          progress.report({ message: event.detail ? `${event.label} · ${event.detail}` : event.label });
+        }, (entry) => {
+          const previous = session.transcript.at(-1);
+          if (previous?.kind === entry.kind && previous.label === entry.label && previous.content === entry.content) return;
+          updateSession({ transcript: [...session.transcript, { ...entry, at: new Date().toISOString() }].slice(-100) });
+        });
       },
     );
+    updateSession({ status: "completed", finishedAt: new Date().toISOString() });
     const document = await vscode.workspace.openTextDocument({
       language: "markdown",
       content: buildChangeSummaryMarkdown(summary, range, choice),
     });
     await vscode.window.showTextDocument(document, { preview: false });
   } catch (error) {
+    updateSession({
+      status: "failed",
+      finishedAt: new Date().toISOString(),
+      error: error instanceof Error ? error.message : String(error),
+    });
     void vscode.window.showErrorMessage(`Change summary failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

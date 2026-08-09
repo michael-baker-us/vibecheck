@@ -4,9 +4,13 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 
 import { ChangeSummaryRequest, ChangeSummaryResult } from "../domain/change-summary";
+import { CodeReviewProvider, CodeReviewTranscriptEntry } from "../domain/code-review";
+import { normalizeReviewTranscriptEvent } from "../reviews/code-review-service";
 
 const SUMMARY_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
+
+export type ChangeSummaryProgress = { label: string; detail?: string };
 
 const SUMMARY_SCHEMA = {
   type: "object",
@@ -39,6 +43,8 @@ export class ChangeSummaryService {
     request: ChangeSummaryRequest,
     repositoryRoot: string,
     signal?: AbortSignal,
+    onProgress?: (progress: ChangeSummaryProgress) => void,
+    onTranscript?: (entry: Omit<CodeReviewTranscriptEntry, "at">) => void,
   ): Promise<ChangeSummaryResult> {
     const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "vibecheck-summary-"));
     const schemaPath = path.join(temporaryDirectory, "schema.json");
@@ -48,7 +54,7 @@ export class ChangeSummaryService {
       const args = request.provider === "codex"
         ? codexSummaryArguments(request, schemaPath, resultPath)
         : claudeSummaryArguments(request);
-      const events = await runProvider(request.provider, args, repositoryRoot, signal);
+      const events = await runProvider(request.provider, args, repositoryRoot, signal, onProgress, onTranscript);
       if (request.provider === "codex") {
         return parseChangeSummaryOutput(await readFile(resultPath, "utf8"));
       }
@@ -135,10 +141,12 @@ export function parseChangeSummaryOutput(raw: string): ChangeSummaryResult {
 }
 
 async function runProvider(
-  command: "codex" | "claude",
+  command: CodeReviewProvider,
   args: string[],
   cwd: string,
   signal?: AbortSignal,
+  onProgress?: (progress: ChangeSummaryProgress) => void,
+  onTranscript?: (entry: Omit<CodeReviewTranscriptEntry, "at">) => void,
 ): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
@@ -155,7 +163,13 @@ async function runProvider(
     };
     const consumeLine = (line: string) => {
       if (!line.trim()) return;
-      try { events.push(JSON.parse(line) as unknown); } catch { /* Ignore provider diagnostics. */ }
+      try {
+        const event = JSON.parse(line) as unknown;
+        events.push(event);
+        const progress = normalizeChangeSummaryEvent(command, event);
+        if (progress) onProgress?.(progress);
+        normalizeChangeSummaryTranscriptEvent(command, event).forEach((entry) => onTranscript?.(entry));
+      } catch { /* Ignore provider diagnostics. */ }
     };
     const abort = () => { child.kill(); finish(new Error("Change summary cancelled.")); };
     const timeout = setTimeout(() => { child.kill(); finish(new Error("Change summary timed out after 10 minutes.")); }, SUMMARY_TIMEOUT_MS);
@@ -176,6 +190,55 @@ async function runProvider(
     if (signal?.aborted) abort();
     else signal?.addEventListener("abort", abort, { once: true });
   });
+}
+
+export function normalizeChangeSummaryTranscriptEvent(
+  provider: CodeReviewProvider,
+  value: unknown,
+): Array<Omit<CodeReviewTranscriptEntry, "at">> {
+  return normalizeReviewTranscriptEvent(provider, value).map((entry) => {
+    if (entry.label === "Review started") return { ...entry, label: "Summary started" };
+    if (entry.label === "Review failed") return { ...entry, label: "Summary failed" };
+    return entry;
+  });
+}
+
+export function normalizeChangeSummaryEvent(
+  provider: CodeReviewProvider,
+  value: unknown,
+): ChangeSummaryProgress | undefined {
+  if (!isRecord(value) || typeof value.type !== "string") return undefined;
+  if (provider === "codex") {
+    if (value.type === "thread.started") return { label: "Starting Codex" };
+    if (value.type === "turn.started") return { label: "Analyzing selected changes" };
+    if (value.type === "turn.completed") return { label: "Formatting Markdown summary" };
+    if ((value.type === "item.started" || value.type === "item.completed") && isRecord(value.item)) {
+      if (value.item.type === "command_execution") return { label: "Inspecting repository evidence" };
+      if (value.item.type === "reasoning") return { label: "Identifying meaningful changes" };
+      if (value.item.type === "agent_message") return { label: "Drafting change summary" };
+    }
+    return undefined;
+  }
+  if (value.type === "system" && value.subtype === "init") return { label: "Starting Claude" };
+  if (value.type === "system" && value.subtype === "thinking_tokens") return { label: "Analyzing selected changes" };
+  if (value.type === "result") return { label: "Formatting Markdown summary" };
+  if (value.type !== "assistant" || !isRecord(value.message) || !Array.isArray(value.message.content)) {
+    return undefined;
+  }
+  for (const block of value.message.content) {
+    if (!isRecord(block) || block.type !== "tool_use" || typeof block.name !== "string") continue;
+    const input = isRecord(block.input) ? block.input : {};
+    if (block.name === "Read") return { label: "Reading changed code", detail: compactPath(input.file_path) };
+    if (block.name === "Grep") return { label: "Searching repository context" };
+    if (block.name === "Glob") return { label: "Discovering related files" };
+    if (block.name === "Bash") return { label: "Inspecting Git changes" };
+  }
+  return undefined;
+}
+
+function compactPath(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return value.replaceAll("\\", "/").split("/").filter(Boolean).slice(-3).join("/").slice(0, 160) || undefined;
 }
 
 function optionalText(value: unknown): string | undefined {

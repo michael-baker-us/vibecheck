@@ -4,3 +4,5 @@ CLAUDE.local.md
 
 # Optional saved Intent Loop reports
 .intent-loop/reports/
+
+.DS_Store
