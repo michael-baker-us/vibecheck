@@ -197,7 +197,7 @@ npm run package:vsix
 Install a locally packaged build with:
 
 ```bash
-code --install-extension packages/vibecheck-0.6.12.vsix --force
+code --install-extension packages/vibecheck-0.6.13.vsix --force
 ```
 
 Reload the target VS Code window after installation.

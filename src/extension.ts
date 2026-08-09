@@ -100,6 +100,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => instructionRefreshSession,
     () => providerUsage,
     () => agentAlignment,
+    extensionVersion(context),
   );
   controller = new ObservationController(
     workspaceFolder,
@@ -408,6 +409,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await alignWhenEnabled();
   void vscode.commands.executeCommand("vibecheck.refreshProviderUsage");
   eventReader.start();
+}
+
+/** Reads the running extension version from its own manifest. */
+function extensionVersion(context: vscode.ExtensionContext): string {
+  const version = (context.extension?.packageJSON as { version?: unknown } | undefined)?.version;
+  return typeof version === "string" ? version : "unknown";
 }
 
 export function deactivate(): void {

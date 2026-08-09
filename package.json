@@ -2,7 +2,7 @@
   "name": "vibecheck",
   "displayName": "VibeCheck",
   "description": "Local engineering confidence for AI-assisted coding.",
-  "version": "0.6.12",
+  "version": "0.6.13",
   "private": true,
   "publisher": "local",
   "license": "UNLICENSED",

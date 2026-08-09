@@ -218,7 +218,7 @@ export function controlCenterHtml(cspSource: string): string {
     const actionDrawerOpen=document.querySelector('.action-drawer')?.open===true;
     buttonSequence=0;
     app.replaceChildren();
-    if (data.kind !== 'ready') { const box=el('section','hero'); box.append(el('h1','', 'VibeCheck'),el('p','',data.reason)); box.append(button('Start observing','start',undefined,'primary')); app.append(box); return; }
+    if (data.kind !== 'ready') { const box=el('section','hero'); box.append(el('h1','', 'VibeCheck'),el('p','',data.reason)); box.append(button('Start observing','start',undefined,'primary')); app.append(box,el('div','footer','VibeCheck '+(data.version||'unknown'))); return; }
     const s=data.state, open=s.findings.filter(f=>f.status==='open'), history=s.findings.filter(f=>f.status!=='open');
     const inCategory=category=>s.verification.filter(v=>(data.categories[v.name]||'other')===category).sort((a,b)=>(b.finishedAt||'').localeCompare(a.finishedAt||''));
     const latest=category=>inCategory(category).filter(v=>v.summary)[0];
@@ -368,7 +368,7 @@ export function controlCenterHtml(cspSource: string): string {
     const localTools=section('Monitoring & local data','local','tools:local-data',false),row1=el('div','actions'); row1.append(button(s.paused?'Resume monitoring':'Pause monitoring',s.paused?'resume':'pause'),button('Refresh now','refresh'),button('Delete local data','delete',undefined,'ghost danger')); localTools.content.append(row1); pages.tools.append(localTools.card);
     Object.values(pages).forEach(page=>app.append(page)); showView(initialView);
     requestAnimationFrame(()=>{ if(focusedKey)document.querySelector('[data-focus-key="'+CSS.escape(focusedKey)+'"]')?.focus({preventScroll:true}); window.scrollTo(0,previousScroll); });
-    app.append(el('div','footer','Local only · '+(s.headBranch||'detached HEAD')+' · '+s.baselineCommit.slice(0,12)));
+    app.append(el('div','footer','VibeCheck '+(data.version||'unknown')+' · Local only · '+(s.headBranch||'detached HEAD')+' · '+s.baselineCommit.slice(0,12)));
   }
   window.addEventListener('message',event=>{ if(event.data.type==='state') render(event.data.payload); });
   setInterval(()=>{ document.querySelectorAll('[data-review-started]').forEach(node=>{ const elapsed=Math.max(0,Date.now()-Date.parse(node.dataset.reviewStarted)),seconds=Math.floor(elapsed/1000),minutes=Math.floor(seconds/60); node.textContent='Running · '+(minutes?minutes+'m ':'')+(seconds%60)+'s'; }); },1000);

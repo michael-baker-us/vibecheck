@@ -35,6 +35,8 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.deepEqual(checkReportLabels, ["View report", "View report"]);
   assert.match(source, /button\('View check report','check-output-menu'/);
   assert.match(source, /const gateOutcome = gate =>/);
+  assert.match(source, /VibeCheck .\+\(data\.version\|\|.unknown.\)/);
+  assert.match(source, /version: this\.version/);
   assert.match(source, /summaryUnrecognized/);
   assert.match(source, /format: or report_path:/);
   assert.match(source, /Ran · format not recognised/);

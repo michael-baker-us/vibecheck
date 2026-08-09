@@ -368,6 +368,7 @@ const BASE_PAYLOAD = {
     claudeDeep: "claude-opus-5",
   },
   alignAgentWorkspace: false,
+  version: "0.6.13",
 };
 
 /**

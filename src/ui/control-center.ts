@@ -28,6 +28,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     private readonly getInstructionRefreshSession: () => InstructionRefreshSession | undefined,
     private readonly getProviderUsage: () => ProviderUsageSnapshot,
     private readonly getAgentAlignment: () => AgentAlignmentSnapshot,
+    private readonly version: string = "unknown",
   ) {}
 
   public resolveWebviewView(view: vscode.WebviewView): void {
@@ -71,12 +72,13 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           providerUsage: this.getProviderUsage(),
           agentAlignment: this.getAgentAlignment(),
           modelRouting: readModelRouting(),
+          version: this.version,
           alignAgentWorkspace: vscode.workspace.getConfiguration(
             "vibecheck",
             vscode.workspace.workspaceFolders?.[0]?.uri,
           ).get<boolean>("alignAgentWorkspace", false),
         }
-      : snapshot;
+      : { ...snapshot, version: this.version };
     void this.view.webview.postMessage({ type: "state", payload });
   }
 
