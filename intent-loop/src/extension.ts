@@ -7,7 +7,6 @@ import { AdapterInstaller, SupportedAgent } from "./adapters/adapter-installer";
 import { LocalEventReader } from "./adapters/local-event-reader";
 import { AnalysisEngine } from "./analyzers/analysis-engine";
 import { AgentFileCollector } from "./collectors/agent-file-collector";
-import { AgentUsageCollector } from "./collectors/agent-usage-collector";
 import { GitCollector } from "./collectors/git-collector";
 import { PlanCollector } from "./collectors/plan-collector";
 import { ConfigLoader } from "./config/config-loader";
@@ -22,6 +21,7 @@ import { WorkspaceStore } from "./storage/workspace-store";
 import { FindingDiagnostics } from "./ui/diagnostics";
 import { ControlCenterProvider } from "./ui/control-center";
 import { IntentLoopStatusBar } from "./ui/status-bar";
+import { ProviderUsageService } from "./usage/provider-usage-service";
 import { VerificationService } from "./verification/verification-service";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -34,8 +34,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   const git = new GitCollector();
-  const usageCollector = new AgentUsageCollector();
-  let agentUsage = await usageCollector.collect();
+  const usageService = new ProviderUsageService();
+  let providerUsage = usageService.emptySnapshot();
   const adapters = new AdapterInstaller(context.asAbsolutePath("resources/hook-bridge.cjs"));
   const statusBar = new IntentLoopStatusBar();
   const diagnostics = new FindingDiagnostics();
@@ -45,7 +45,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => controller.getConfiguration(),
     () => controller.getConfigurationError(),
     () => controller.getReviewTranscript(),
-    () => agentUsage,
+    () => providerUsage,
   );
   controller = new ObservationController(
     workspaceFolder,
@@ -81,8 +81,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("intentLoop.start", () => controller.resume()),
     vscode.commands.registerCommand("intentLoop.pause", () => controller.pause()),
     vscode.commands.registerCommand("intentLoop.refresh", () => controller.refresh()),
-    vscode.commands.registerCommand("intentLoop.refreshAgentUsage", async () => {
-      agentUsage = await usageCollector.collect();
+    vscode.commands.registerCommand("intentLoop.refreshProviderUsage", async () => {
+      providerUsage = usageService.loadingSnapshot(providerUsage);
+      controlCenter.refresh();
+      providerUsage = await usageService.collect();
       controlCenter.refresh();
     }),
     vscode.commands.registerCommand("intentLoop.selectPlan", () => selectPlan(controller)),
@@ -152,6 +154,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   statusBar.render(controller.getSnapshot());
   await controller.initialize();
+  void vscode.commands.executeCommand("intentLoop.refreshProviderUsage");
   eventReader.start();
 }
 

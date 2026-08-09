@@ -18,8 +18,9 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /Clear review/);
   assert.match(source, /intentLoop\.clearCodeReview/);
   assert.match(source, /Claude & Codex usage/);
+  assert.match(source, /Codex \/status and Claude \/usage/);
   assert.match(source, /Refresh usage/);
-  assert.match(source, /Prompt and response content is never read/);
+  assert.match(source, /usage-track/);
   assert.match(source, /Live CLI review/);
   assert.match(source, /review-terminal/);
   assert.match(source, /gpt-5\.6-terra/);

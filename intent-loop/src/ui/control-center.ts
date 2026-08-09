@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
 
-import { AgentUsageSnapshot } from "../collectors/agent-usage-collector";
 import { IntentLoopConfiguration } from "../domain/configuration";
 import { categoryFor, calculateReadiness, missingRecommendedCategories } from "../domain/quality-gates";
 import { ObservationSnapshot } from "../domain/observation-state";
+import { ProviderUsageSnapshot } from "../usage/provider-usage-service";
 
 type WebviewMessage = { action?: unknown; id?: unknown };
 
@@ -15,7 +15,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     private readonly getConfiguration: () => IntentLoopConfiguration,
     private readonly getConfigurationError: () => string | undefined,
     private readonly getReviewTranscript: () => Array<{ at: string; kind: string; label: string; content?: string }>,
-    private readonly getAgentUsage: () => AgentUsageSnapshot,
+    private readonly getProviderUsage: () => ProviderUsageSnapshot,
   ) {}
 
   public resolveWebviewView(view: vscode.WebviewView): void {
@@ -52,7 +52,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           ),
           configurationError: this.getConfigurationError(),
           reviewTranscript: this.getReviewTranscript(),
-          agentUsage: this.getAgentUsage(),
+          providerUsage: this.getProviderUsage(),
         }
       : snapshot;
     void this.view.webview.postMessage({ type: "state", payload });
@@ -65,7 +65,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       "select-plan": "intentLoop.selectPlan",
       "open-plan": "intentLoop.openPlan",
       refresh: "intentLoop.refresh",
-      "refresh-usage": "intentLoop.refreshAgentUsage",
+      "refresh-provider-usage": "intentLoop.refreshProviderUsage",
       pause: "intentLoop.pause",
       resume: "intentLoop.start",
       "run-all": "intentLoop.runAllVerification",
@@ -232,6 +232,12 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     .review-terminal-entry.output .review-terminal-kind { color:var(--panel-muted); }
     .review-terminal-entry.error .review-terminal-kind { color:var(--vscode-errorForeground); }
     .review-terminal-entry pre { margin:6px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; color:inherit; font:11px/1.45 var(--vscode-editor-font-family,monospace); }
+    .usage-window { display:grid; gap:5px; }
+    .usage-window-head { display:flex; justify-content:space-between; gap:8px; font-size:11px; }
+    .usage-track { height:7px; overflow:hidden; border-radius:999px; background:var(--panel-surface-strong); border:1px solid var(--panel-border); }
+    .usage-fill { height:100%; border-radius:inherit; background:var(--vscode-testing-iconPassed); }
+    .usage-fill.warning { background:var(--vscode-editorWarning-foreground); }
+    .usage-fill.danger { background:var(--vscode-testing-iconFailed); }
     @keyframes review-pulse { 70% { box-shadow:0 0 0 5px transparent; } 100% { box-shadow:0 0 0 0 transparent; } }
     @media (max-width: 360px) {
       .shell { gap:9px; padding:8px; }
@@ -263,7 +269,6 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
   const button = (label,action,id,kind='secondary') => { const node=el('button','btn small '+kind,label); node.onclick=()=>send(action,id); return node; };
   const section = (title,count) => { const card=el('section','card'); const head=el('div','section-head'); head.append(el('h2','',title),el('span','',String(count))); const content=el('div','content'); card.append(head,content); return {card,content}; };
   const percent = value => Number(value).toFixed(2)+'%';
-  const compactNumber = value => new Intl.NumberFormat(undefined,{notation:'compact',maximumFractionDigits:1}).format(value);
   const signed = value => (value>0?'+':'')+Number(value).toFixed(2)+' pp';
   const summaryText = summary => { if(!summary)return 'No structured metrics available'; if(summary.kind==='tests')return summary.passed+'/'+summary.total+' passed · '+summary.failed+' failed'+(summary.skipped?' · '+summary.skipped+' skipped':''); if(summary.kind==='coverage')return percent(summary.lines)+' lines'+(summary.change?' · '+signed(summary.change):''); const movement=(summary.newIssues?summary.newIssues+' new':'')+(summary.newIssues&&summary.fixedIssues?' · ':'')+(summary.fixedIssues?summary.fixedIssues+' fixed':''); return summary.total+' vulnerabilities'+(movement?' · '+movement:''); };
   const metric = (label,value,detail,tone='neutral') => { const node=el('div','metric'); node.append(el('div','metric-label',label),el('div','metric-value '+tone,value),el('div','metric-detail',detail)); return node; };
@@ -331,10 +336,11 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     }
     pages.review.append(review.card);
 
-    const usage=section('Claude & Codex usage','rolling '+data.agentUsage.periodDays+' days');
-    usage.content.append(el('div','section-intro','Local CLI metadata only. Prompt and response content is never read or retained.'));
-    [['codex','Codex'],['claude','Claude']].forEach(([key,label])=>{ const provider=data.agentUsage[key],item=el('div','item'),head=el('div','item-head'); head.append(el('span','item-title',label),el('span','badge '+(provider.available?'ready':'neutral'),provider.available?'available':'no data')); item.append(head); if(provider.available){ const metrics=el('div','metrics'); metrics.append(metric('7-day tokens',compactNumber(provider.tokens),provider.tokens.toLocaleString()+' local tokens'),metric('Today',compactNumber(provider.todayTokens),provider.todayTokens.toLocaleString()+' local tokens'),metric('Sessions',String(provider.sessions),'in the rolling window')); if(provider.rateLimit)metrics.append(metric('Current limit',Number(provider.rateLimit.usedPercent).toFixed(0)+'%',provider.rateLimit.resetsAt?'resets '+new Date(provider.rateLimit.resetsAt).toLocaleString():'provider-reported window',provider.rateLimit.usedPercent>=90?'blocked':provider.rateLimit.usedPercent>=70?'incomplete':'ready')); item.append(metrics); if(provider.lastActivityAt)item.append(el('div','meta','Last activity '+new Date(provider.lastActivityAt.length===10?provider.lastActivityAt+'T00:00:00':provider.lastActivityAt).toLocaleString())); } if(provider.detail)item.append(el('div','callout',provider.detail)); usage.content.append(item); });
-    const usageFooter=el('div','item-actions'); usageFooter.append(button('Refresh usage','refresh-usage',undefined,'secondary')); usage.content.append(usageFooter,el('div','meta','Collected '+new Date(data.agentUsage.collectedAt).toLocaleString()+' · Claude account limits remain available through /usage in Claude Code.')); pages.review.append(usage.card);
+    const usageState=data.providerUsage,usage=section('Claude & Codex usage',usageState.status==='loading'?'refreshing':'provider reported');
+    usage.content.append(el('div','section-intro','Account usage reported directly by Codex /status and Claude /usage. Results stay in memory and refresh on demand.'));
+    if(usageState.status==='idle')usage.content.append(el('div','empty','Usage has not been loaded yet.'));
+    usageState.providers.forEach(provider=>{ const label=provider.provider==='codex'?'Codex':'Claude',item=el('div','item'),head=el('div','item-head'); head.append(el('span','item-title',label+' '+provider.source),el('span','badge '+(provider.status==='ready'?'ready':'blocked'),provider.status)); item.append(head); if(provider.summary)item.append(el('div','meta',provider.summary)); if(provider.detail)item.append(el('div','callout danger',provider.detail)); provider.windows.forEach(window=>{ const row=el('div','usage-window'),rowHead=el('div','usage-window-head'),percentUsed=Math.max(0,Math.min(100,Number(window.usedPercent))); rowHead.append(el('span','',window.label),el('strong','',Number(window.usedPercent).toFixed(0)+'% used')); const track=el('div','usage-track'),fill=el('div','usage-fill '+(percentUsed>=90?'danger':percentUsed>=70?'warning':'')); fill.style.width=percentUsed+'%'; track.append(fill); row.append(rowHead,track); if(window.resetText){ const iso=/^\d{4}-\d{2}-\d{2}T/.test(window.resetText); row.append(el('div','meta','Resets '+(iso?new Date(window.resetText).toLocaleString():window.resetText))); } item.append(row); }); usage.content.append(item); });
+    const usageActions=el('div','item-actions'),refreshUsage=button(usageState.status==='loading'?'Refreshing usage…':'Refresh usage','refresh-provider-usage',undefined,'secondary'); refreshUsage.disabled=usageState.status==='loading'; usageActions.append(refreshUsage); usage.content.append(usageActions); if(usageState.updatedAt)usage.content.append(el('div','meta','Updated '+new Date(usageState.updatedAt).toLocaleString())); pages.review.append(usage.card);
 
     const gates=section('Quality gates',s.verification.length);
     pages.quality.append(el('div','section-intro','Run, inspect, and compare repository-owned checks. Passing evidence becomes stale when relevant inputs change.'));

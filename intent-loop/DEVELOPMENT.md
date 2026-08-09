@@ -69,8 +69,8 @@ Agent bridge tests assert that prompt content is not persisted. Adapter tests us
 directories and never modify actual Codex or Claude settings. Verification output is bounded and
 redacts common secret assignments before persistence. Semantic review is never automatic: the user
 chooses a provider for each run, and the provider may process repository content using its configured
-remote service. Usage monitoring reads local aggregate/token-count events only, does not retain them
-in workspace state, and tolerates missing or stale provider caches.
+remote service. Usage monitoring invokes Codex `/status` and Claude `/usage`, retains only normalized
+utilization/reset fields in memory, and never stores provider credentials or raw output.
 
 ## Manual evaluation
 

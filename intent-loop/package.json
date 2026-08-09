@@ -44,7 +44,7 @@
         "icon": "$(refresh)"
       },
       {
-        "command": "intentLoop.refreshAgentUsage",
+        "command": "intentLoop.refreshProviderUsage",
         "title": "Refresh Claude and Codex Usage",
         "category": "VibeCheck",
         "icon": "$(pulse)"
