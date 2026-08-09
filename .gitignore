@@ -2,7 +2,7 @@
 CLAUDE.local.md
 .claude/settings.local.json
 
-# Optional saved Intent Loop reports
-.intent-loop/reports/
+# Optional saved VibeCheck reports
+.vibecheck/reports/
 
 .DS_Store

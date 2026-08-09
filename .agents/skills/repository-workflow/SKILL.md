@@ -5,7 +5,7 @@ description: Work safely and consistently in the Companion/VibeCheck repository.
 
 # Repository workflow
 
-Work from `intent-loop/` unless the task targets repository-level agent configuration.
+Work from `vibecheck/` unless the task targets repository-level agent configuration.
 
 1. Inspect the relevant implementation, tests, and current Git changes before editing.
 2. Preserve unrelated work and existing extension functionality.
