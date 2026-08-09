@@ -5,7 +5,8 @@ import {
   ObservationState,
 } from "../domain/observation-state";
 
-const OBSERVATION_STATE_KEY = "intentLoop.observationState.v6";
+const OBSERVATION_STATE_KEY = "intentLoop.observationState.v7";
+const VERSION_SIX_STATE_KEY = "intentLoop.observationState.v6";
 const VERSION_FIVE_STATE_KEY = "intentLoop.observationState.v5";
 const VERSION_FOUR_STATE_KEY = "intentLoop.observationState.v4";
 const VERSION_THREE_STATE_KEY = "intentLoop.observationState.v3";
@@ -22,9 +23,14 @@ type LegacyObservationState = {
   changedPaths: string[];
 };
 
+type VersionSixObservationState = Omit<ObservationState, "version" | "codeReview"> & {
+  version: 6;
+  codeReview?: Omit<NonNullable<ObservationState["codeReview"]>, "profile" | "model" | "effort">;
+};
+
 type VersionFiveObservationState = Omit<ObservationState, "version" | "codeReview"> & {
   version: 5;
-  codeReview?: Omit<NonNullable<ObservationState["codeReview"]>, "baselineCommit" | "activity">;
+  codeReview?: Omit<NonNullable<ObservationState["codeReview"]>, "baselineCommit" | "activity" | "profile" | "model" | "effort">;
 };
 
 type VersionFourObservationState = Omit<ObservationState, "version" | "codeReview"> & {
@@ -49,6 +55,20 @@ export class WorkspaceStore {
       return current;
     }
 
+    const versionSix = this.state.get<VersionSixObservationState>(VERSION_SIX_STATE_KEY);
+    if (versionSix?.version === 6) {
+      return {
+        ...versionSix,
+        version: OBSERVATION_STATE_VERSION,
+        codeReview: versionSix.codeReview ? {
+          ...versionSix.codeReview,
+          profile: "deep",
+          model: "CLI default",
+          effort: "high",
+        } : undefined,
+      };
+    }
+
     const versionFive = this.state.get<VersionFiveObservationState>(VERSION_FIVE_STATE_KEY);
     if (versionFive?.version === 5) {
       return {
@@ -58,6 +78,9 @@ export class WorkspaceStore {
           ...versionFive.codeReview,
           baselineCommit: versionFive.baselineCommit,
           activity: [],
+          profile: "deep",
+          model: "CLI default",
+          effort: "high",
         } : undefined,
       };
     }
@@ -104,6 +127,7 @@ export class WorkspaceStore {
       this.state.update(VERSION_THREE_STATE_KEY, undefined),
       this.state.update(VERSION_FOUR_STATE_KEY, undefined),
       this.state.update(VERSION_FIVE_STATE_KEY, undefined),
+      this.state.update(VERSION_SIX_STATE_KEY, undefined),
       this.state.update(LEGACY_STATE_KEY, undefined),
     ]);
   }
@@ -115,6 +139,7 @@ export class WorkspaceStore {
       this.state.update(VERSION_THREE_STATE_KEY, undefined),
       this.state.update(VERSION_FOUR_STATE_KEY, undefined),
       this.state.update(VERSION_FIVE_STATE_KEY, undefined),
+      this.state.update(VERSION_SIX_STATE_KEY, undefined),
       this.state.update(LEGACY_STATE_KEY, undefined),
     ]);
   }

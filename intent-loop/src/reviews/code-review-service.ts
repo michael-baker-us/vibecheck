@@ -8,6 +8,7 @@ import {
   CodeReviewFinding,
   CodeReviewProvider,
   CodeReviewResult,
+  CodeReviewSelection,
   CodeReviewTranscriptEntry,
 } from "../domain/code-review";
 
@@ -53,18 +54,19 @@ const REVIEW_PROMPT = [
 
 export class CodeReviewService {
   public async run(
-    provider: CodeReviewProvider,
+    selection: CodeReviewSelection,
     repositoryRoot: string,
     signal?: AbortSignal,
     onProgress?: (progress: ReviewProgress) => void,
     onTranscript?: (entry: Omit<CodeReviewTranscriptEntry, "at">) => void,
   ): Promise<CodeReviewResult> {
-    return provider === "codex"
-      ? this.runCodex(repositoryRoot, signal, onProgress, onTranscript)
-      : this.runClaude(repositoryRoot, signal, onProgress, onTranscript);
+    return selection.provider === "codex"
+      ? this.runCodex(selection, repositoryRoot, signal, onProgress, onTranscript)
+      : this.runClaude(selection, repositoryRoot, signal, onProgress, onTranscript);
   }
 
   private async runCodex(
+    selection: CodeReviewSelection,
     repositoryRoot: string,
     signal?: AbortSignal,
     onProgress?: (progress: ReviewProgress) => void,
@@ -77,18 +79,7 @@ export class CodeReviewService {
       await writeFile(schemaPath, JSON.stringify(REVIEW_SCHEMA), "utf8");
       await this.runStreaming(
         "codex",
-        [
-          "exec",
-          "--sandbox",
-          "read-only",
-          "--ephemeral",
-          "--output-schema",
-          schemaPath,
-          "--output-last-message",
-          resultPath,
-          "--json",
-          REVIEW_PROMPT,
-        ],
+        codexReviewArguments(selection, schemaPath, resultPath),
         repositoryRoot,
         "codex",
         signal,
@@ -102,6 +93,7 @@ export class CodeReviewService {
   }
 
   private async runClaude(
+    selection: CodeReviewSelection,
     repositoryRoot: string,
     signal?: AbortSignal,
     onProgress?: (progress: ReviewProgress) => void,
@@ -109,20 +101,7 @@ export class CodeReviewService {
   ): Promise<CodeReviewResult> {
     const events = await this.runStreaming(
       "claude",
-      [
-        "--print",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--json-schema",
-        JSON.stringify(REVIEW_SCHEMA),
-        "--permission-mode",
-        "plan",
-        "--allowed-tools",
-        "Read,Grep,Glob,Bash(git diff *),Bash(git status *)",
-        "--no-session-persistence",
-        REVIEW_PROMPT,
-      ],
+      claudeReviewArguments(selection),
       repositoryRoot,
       "claude",
       signal,
@@ -200,6 +179,50 @@ export class CodeReviewService {
   }
 }
 
+export function codexReviewArguments(
+  selection: CodeReviewSelection,
+  schemaPath: string,
+  resultPath: string,
+): string[] {
+  return [
+    "exec",
+    "--model",
+    selection.model,
+    "--config",
+    `model_reasoning_effort=\"${selection.effort}\"`,
+    "--sandbox",
+    "read-only",
+    "--ephemeral",
+    "--output-schema",
+    schemaPath,
+    "--output-last-message",
+    resultPath,
+    "--json",
+    REVIEW_PROMPT,
+  ];
+}
+
+export function claudeReviewArguments(selection: CodeReviewSelection): string[] {
+  return [
+    "--print",
+    "--model",
+    selection.model,
+    "--effort",
+    selection.effort,
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--json-schema",
+    JSON.stringify(REVIEW_SCHEMA),
+    "--permission-mode",
+    "plan",
+    "--allowed-tools",
+    "Read,Grep,Glob,Bash(git diff *),Bash(git status *)",
+    "--no-session-persistence",
+    REVIEW_PROMPT,
+  ];
+}
+
 export function normalizeReviewTranscriptEvent(
   provider: CodeReviewProvider,
   value: unknown,
@@ -245,7 +268,21 @@ function codexTranscript(value: Record<string, unknown>): Array<Omit<CodeReviewT
 }
 
 function claudeTranscript(value: Record<string, unknown>): Array<Omit<CodeReviewTranscriptEntry, "at">> {
-  if (value.type === "system") return [{ kind: "status", label: "Claude session started" }];
+  if (value.type === "system" && value.subtype === "init") {
+    const detail = [
+      typeof value.model === "string" ? `Model: ${value.model}` : undefined,
+      typeof value.permissionMode === "string" ? `Permissions: ${value.permissionMode}` : undefined,
+    ].filter(Boolean).join(" · ");
+    return [{ kind: "status", label: "Claude session started", content: detail || undefined }];
+  }
+  if (value.type === "system" && value.subtype === "hook_started") {
+    const hook = typeof value.hook_name === "string" ? value.hook_name
+      : typeof value.hook_event === "string" ? value.hook_event : "Claude hook";
+    return [{ kind: "tool", label: `Hook · ${hook}` }];
+  }
+  if (value.type === "system" && value.subtype === "status" && typeof value.status === "string") {
+    return [{ kind: "status", label: value.status }];
+  }
   if (value.type === "result" && value.subtype !== "success") {
     return [{ kind: "error", label: "Claude result", content: boundedText(value.result) }];
   }
@@ -313,7 +350,8 @@ export function normalizeReviewEvent(
     }
     return undefined;
   }
-  if (value.type === "system") return { label: "Starting Claude review" };
+  if (value.type === "system" && value.subtype === "init") return { label: "Starting Claude review" };
+  if (value.type === "system" && value.subtype === "thinking_tokens") return { label: "Analyzing changes" };
   if (value.type === "result") return { label: "Formatting review findings" };
   if (value.type !== "assistant" || !isRecord(value.message) || !Array.isArray(value.message.content)) {
     return undefined;

@@ -10,7 +10,7 @@ import { AgentFileCollector } from "./collectors/agent-file-collector";
 import { GitCollector } from "./collectors/git-collector";
 import { PlanCollector } from "./collectors/plan-collector";
 import { ConfigLoader } from "./config/config-loader";
-import { CodeReviewFinding, CodeReviewProvider } from "./domain/code-review";
+import { CodeReviewFinding, CodeReviewSelection } from "./domain/code-review";
 import { Finding } from "./domain/findings";
 import { ObservationController } from "./observation-controller";
 import { buildFollowUpPrompt } from "./prompts/follow-up-builder";
@@ -379,13 +379,15 @@ async function runCodeReview(controller: ObservationController): Promise<void> {
   }
   const choice = await vscode.window.showQuickPick(
     [
-      { label: "Codex", description: "Run codex exec review against uncommitted changes", provider: "codex" as const },
-      { label: "Claude", description: "Run Claude Code in read-only review mode", provider: "claude" as const },
+      { label: "Codex · Balanced (Default)", description: "gpt-5.6-terra · medium effort", detail: "Faster routine review with balanced capability and latency.", provider: "codex" as const, profile: "balanced" as const, model: "gpt-5.6-terra", effort: "medium" as const },
+      { label: "Codex · Deep", description: "gpt-5.6-sol · high effort", detail: "Quality-first review for large, sensitive, or difficult changes.", provider: "codex" as const, profile: "deep" as const, model: "gpt-5.6-sol", effort: "high" as const },
+      { label: "Claude · Balanced (Default)", description: "claude-sonnet-5 · medium effort", detail: "Faster routine review with balanced capability and latency.", provider: "claude" as const, profile: "balanced" as const, model: "claude-sonnet-5", effort: "medium" as const },
+      { label: "Claude · Deep", description: "claude-opus-5 · high effort", detail: "Quality-first review for large, sensitive, or difficult changes.", provider: "claude" as const, profile: "deep" as const, model: "claude-opus-5", effort: "high" as const },
     ],
-    { title: "Choose a code review provider", placeHolder: "Repository content is processed by the selected provider" },
+    { title: "Choose code review model", placeHolder: "The exact model and effort shown here will be passed to the CLI", matchOnDescription: true, matchOnDetail: true },
   );
   if (!choice) return;
-  const provider: CodeReviewProvider = choice.provider;
+  const selection: CodeReviewSelection = choice;
   try {
     await vscode.window.withProgress(
       {
@@ -396,7 +398,7 @@ async function runCodeReview(controller: ObservationController): Promise<void> {
       async (_progress, token) => {
         const abort = new AbortController();
         token.onCancellationRequested(() => abort.abort());
-        await controller.runCodeReview(provider, abort.signal);
+        await controller.runCodeReview(selection, abort.signal);
       },
     );
     const current = controller.getSnapshot();

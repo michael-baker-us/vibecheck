@@ -39,6 +39,9 @@ const state = {
   ],
   codeReview: {
     provider: "codex",
+    profile: "deep",
+    model: "gpt-5.6-sol",
+    effort: "high",
     status: "completed",
     baselineCommit: "abc123",
     changeFingerprint: "review-fingerprint",

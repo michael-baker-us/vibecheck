@@ -5,7 +5,7 @@ import { Finding } from "./findings";
 import { PlanDocument } from "./plans";
 import { VerificationState } from "./verification";
 
-export const OBSERVATION_STATE_VERSION = 6 as const;
+export const OBSERVATION_STATE_VERSION = 7 as const;
 
 export type FileChangeStatus = "added" | "modified" | "deleted" | "renamed";
 

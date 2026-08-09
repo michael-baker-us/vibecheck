@@ -29,6 +29,8 @@ monitor the agent.
 - Optionally ingests normalized local Codex and Claude hook events.
 - Runs explicit, read-only semantic reviews through an installed Codex or Claude CLI, records
   structured findings with file/line evidence, and marks results stale when the diff changes.
+- Makes model routing explicit before every review: Balanced uses `gpt-5.6-terra` or
+  `claude-sonnet-5` at medium effort; Deep uses `gpt-5.6-sol` or `claude-opus-5` at high effort.
 - Streams a terminal-style, memory-only transcript into the Review view while the CLI is running,
   including assistant messages, tool calls, commands, and bounded tool output. Completed Codex and
   Claude results use the same concise Markdown report format.
@@ -53,7 +55,7 @@ rotated at 5 MB with one previous segment.
 npm install
 npm run verify
 npm run package:vsix
-code --install-extension vibecheck-0.6.4.vsix --force
+code --install-extension packages/vibecheck-0.6.7.vsix --force
 ```
 
 Reload VS Code and open the VibeCheck icon in the Activity Bar.
@@ -66,7 +68,7 @@ the rename does not discard workspace state, trusted commands, or existing confi
 
 1. Open a Git-backed workspace.
 2. Use Codex, Claude, or manual editing normally; use VS Code Source Control for files and diffs.
-3. Run a semantic review from **Review** and choose the installed Codex or Claude CLI.
+3. Run a semantic review from **Review** and choose an explicit provider, model, and review depth.
 4. Run individual quality gates or **Run all checks** whenever you need current evidence.
 5. Inspect, accept, or dismiss high-signal deterministic findings in **Needs attention**.
 6. Create an evidence report or copy a concrete agent follow-up.

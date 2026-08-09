@@ -6,6 +6,9 @@ const { buildCodeReviewMarkdown } = require("../dist/reports/code-review-markdow
 test("renders provider-neutral review findings as concise Markdown", () => {
   const markdown = buildCodeReviewMarkdown({
     provider: "claude",
+    profile: "balanced",
+    model: "claude-sonnet-5",
+    effort: "medium",
     status: "completed",
     baselineCommit: "abc123",
     changeFingerprint: "fingerprint",
@@ -26,6 +29,7 @@ test("renders provider-neutral review findings as concise Markdown", () => {
 
   assert.match(markdown, /^# VibeCheck Code Review/m);
   assert.match(markdown, /Provider: claude/);
+  assert.match(markdown, /Model: `claude-sonnet-5`/);
   assert.match(markdown, /## Summary/);
   assert.match(markdown, /### 1\. MEDIUM — Refresh result can be lost/);
   assert.match(markdown, /`src\/controller\.ts:40-43`/);

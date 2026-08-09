@@ -10,7 +10,7 @@ import { PlanCollector } from "./collectors/plan-collector";
 import { WorkspaceWatcher } from "./collectors/workspace-watcher";
 import { ConfigLoader } from "./config/config-loader";
 import { AgentEvent } from "./domain/agent-events";
-import { CodeReviewProvider, CodeReviewTranscriptEntry } from "./domain/code-review";
+import { CodeReviewProvider, CodeReviewSelection, CodeReviewTranscriptEntry } from "./domain/code-review";
 import {
   DEFAULT_CONFIGURATION,
   IntentLoopConfiguration,
@@ -228,8 +228,9 @@ export class ObservationController implements vscode.Disposable {
     await this.refresh();
   }
 
-  public async runCodeReview(provider: CodeReviewProvider, signal?: AbortSignal): Promise<void> {
+  public async runCodeReview(selection: CodeReviewSelection, signal?: AbortSignal): Promise<void> {
     if (this.snapshot.kind !== "ready") return;
+    const { provider } = selection;
     const state = this.snapshot.state;
     const changeFingerprint = this.changeFingerprint(state.changedFiles);
     const startedAt = new Date().toISOString();
@@ -239,6 +240,9 @@ export class ObservationController implements vscode.Disposable {
       ...current,
       codeReview: {
         provider,
+        profile: selection.profile,
+        model: selection.model,
+        effort: selection.effort,
         status: "running",
         baselineCommit: state.baselineCommit,
         changeFingerprint,
@@ -248,7 +252,7 @@ export class ObservationController implements vscode.Disposable {
       },
     }));
     try {
-      const result = await this.codeReviews.run(provider, state.repositoryRoot, signal, (progress) => {
+      const result = await this.codeReviews.run(selection, state.repositoryRoot, signal, (progress) => {
         this.reviewActivityQueue = this.reviewActivityQueue.then(() =>
           this.appendReviewActivity(provider, startedAt, progress.label, progress.detail));
       }, (entry) => this.appendReviewTranscript(entry));
@@ -257,6 +261,9 @@ export class ObservationController implements vscode.Disposable {
         ...current,
         codeReview: {
           provider,
+          profile: selection.profile,
+          model: selection.model,
+          effort: selection.effort,
           status: this.changeFingerprint(current.changedFiles) === changeFingerprint ? "completed" : "stale",
           baselineCommit: state.baselineCommit,
           changeFingerprint,
@@ -274,6 +281,9 @@ export class ObservationController implements vscode.Disposable {
         ...current,
         codeReview: {
           provider,
+          profile: selection.profile,
+          model: selection.model,
+          effort: selection.effort,
           status: "failed",
           baselineCommit: state.baselineCommit,
           changeFingerprint,
@@ -289,6 +299,10 @@ export class ObservationController implements vscode.Disposable {
   }
 
   private appendReviewTranscript(entry: Omit<CodeReviewTranscriptEntry, "at">): void {
+    const previous = this.reviewTranscript.at(-1);
+    if (previous?.kind === entry.kind && previous.label === entry.label && previous.content === entry.content) {
+      return;
+    }
     const next = [...this.reviewTranscript, { ...entry, at: new Date().toISOString() }].slice(-100);
     let bytes = 0;
     const bounded: CodeReviewTranscriptEntry[] = [];

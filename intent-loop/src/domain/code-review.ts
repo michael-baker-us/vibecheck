@@ -1,4 +1,11 @@
 export type CodeReviewProvider = "codex" | "claude";
+export type CodeReviewProfile = "balanced" | "deep";
+export type CodeReviewSelection = {
+  provider: CodeReviewProvider;
+  profile: CodeReviewProfile;
+  model: string;
+  effort: "medium" | "high";
+};
 export type CodeReviewStatus = "running" | "completed" | "failed" | "stale";
 export type CodeReviewSeverity = "info" | "medium" | "high";
 
@@ -27,6 +34,9 @@ export type CodeReviewTranscriptEntry = {
 
 export type CodeReviewState = {
   provider: CodeReviewProvider;
+  profile: CodeReviewProfile;
+  model: string;
+  effort: "medium" | "high";
   status: CodeReviewStatus;
   baselineCommit: string;
   changeFingerprint: string;

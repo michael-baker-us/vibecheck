@@ -20,6 +20,7 @@ product-facing control center:
 - M10 explicit Codex/Claude semantic code review with structured evidence and diff freshness.
 - M11 live provider-neutral review activity and consistent Markdown review reports.
 - M12 detailed memory-only CLI review transcripts with assistant, tool, command, and output events.
+- M13 explicit Balanced/Deep provider model routing with model and effort provenance.
 
 Remaining work is product validation and hardening rather than missing core workflow: sustained
 dogfooding, VS Code-host integration automation, multi-root support, performance measurement on

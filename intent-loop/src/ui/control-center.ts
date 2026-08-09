@@ -306,11 +306,11 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     pages.review.append(el('div','section-intro','Ask Codex or Claude to review the current uncommitted diff. Results are local VibeCheck state and become stale when the diff changes.'));
     const review=section('Code review',s.codeReview?s.codeReview.findings.length:'not run');
     const reviewState=s.codeReview;
-    if(!reviewState){ const c=el('div','callout'); c.append(el('strong','','No semantic review yet'),el('p','','Choose a provider to inspect the current working-tree changes.')); review.content.append(c,button('Run code review','run-review',undefined,'primary')); }
+        if(!reviewState){ const c=el('div','callout'); c.append(el('strong','','No semantic review yet'),el('p','','Balanced: Codex gpt-5.6-terra or Claude claude-sonnet-5 at medium effort.'),el('p','','Deep: Codex gpt-5.6-sol or Claude claude-opus-5 at high effort.')); review.content.append(c,button('Choose model and run review','run-review',undefined,'primary')); }
     else {
       const tone=reviewState.status==='completed'?'ready':reviewState.status==='failed'?'blocked':'incomplete';
-      const head=el('div','item-head'); head.append(el('span','item-title',(reviewState.provider==='codex'?'Codex':'Claude')+' review'),el('span','badge '+tone,reviewState.status));
-      const reviewMeta=el('div','meta','Started '+new Date(reviewState.startedAt).toLocaleString()+(reviewState.finishedAt?' · finished '+new Date(reviewState.finishedAt).toLocaleTimeString():''));
+      const head=el('div','item-head'); head.append(el('span','item-title',(reviewState.provider==='codex'?'Codex':'Claude')+' · '+reviewState.profile+' review'),el('span','badge '+tone,reviewState.status));
+      const reviewMeta=el('div','meta',reviewState.model+' · '+reviewState.effort+' effort · started '+new Date(reviewState.startedAt).toLocaleString()+(reviewState.finishedAt?' · finished '+new Date(reviewState.finishedAt).toLocaleTimeString():''));
       if(reviewState.status==='running'){ reviewMeta.dataset.reviewStarted=reviewState.startedAt; }
       const overview=el('div','item'); overview.append(head,reviewMeta);
       if(reviewState.summary) overview.append(el('p','',reviewState.summary));

@@ -2,10 +2,30 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const {
+  claudeReviewArguments,
+  codexReviewArguments,
   normalizeReviewEvent,
   normalizeReviewTranscriptEvent,
   parseCodeReviewOutput,
 } = require("../dist/reviews/code-review-service");
+
+test("passes the selected model and effort explicitly to each CLI", () => {
+  const codex = codexReviewArguments(
+    { provider: "codex", profile: "deep", model: "gpt-5.6-sol", effort: "high" },
+    "/tmp/schema.json",
+    "/tmp/result.json",
+  );
+  assert.deepEqual(codex.slice(0, 6), [
+    "exec", "--model", "gpt-5.6-sol", "--config", 'model_reasoning_effort="high"', "--sandbox",
+  ]);
+
+  const claude = claudeReviewArguments(
+    { provider: "claude", profile: "balanced", model: "claude-sonnet-5", effort: "medium" },
+  );
+  assert.deepEqual(claude.slice(0, 7), [
+    "--print", "--model", "claude-sonnet-5", "--effort", "medium", "--output-format", "stream-json",
+  ]);
+});
 
 test("parses structured review findings and assigns stable ids", () => {
   const result = parseCodeReviewOutput(JSON.stringify({
@@ -111,5 +131,33 @@ test("renders Claude messages, tool calls, and results into the same transcript 
       message: { content: [{ type: "tool_result", content: "export class Controller {}" }] },
     }),
     [{ kind: "output", label: "Tool result", content: "export class Controller {}" }],
+  );
+});
+
+test("distinguishes Claude initialization from repeated thinking system events", () => {
+  assert.deepEqual(
+    normalizeReviewTranscriptEvent("claude", {
+      type: "system",
+      subtype: "init",
+      model: "claude-opus-5",
+      permissionMode: "plan",
+    }),
+    [{
+      kind: "status",
+      label: "Claude session started",
+      content: "Model: claude-opus-5 · Permissions: plan",
+    }],
+  );
+  assert.deepEqual(
+    normalizeReviewTranscriptEvent("claude", {
+      type: "system",
+      subtype: "thinking_tokens",
+      estimated_tokens: 150,
+    }),
+    [],
+  );
+  assert.deepEqual(
+    normalizeReviewEvent("claude", { type: "system", subtype: "thinking_tokens" }),
+    { label: "Analyzing changes" },
   );
 });

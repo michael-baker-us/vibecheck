@@ -33,7 +33,7 @@ The pre-launch task runs TypeScript in watch mode. Extension runtime output is a
 
 ```bash
 npm run package:vsix
-code --install-extension vibecheck-0.6.4.vsix --force
+code --install-extension packages/vibecheck-0.6.7.vsix --force
 ```
 
 Reload the target VS Code window after installing a new build.
@@ -89,5 +89,6 @@ During a real agent task, check:
 - repeat coverage and security runs show movement relative to the immediately preceding run;
 - generated evidence reports agree with the Control Center quality-gate summaries;
 - Codex and Claude reviews return inspectable file/line evidence and become stale after relevant edits;
+- review selection, live state, and Markdown output agree on the exact model and effort passed to the CLI;
 - running reviews expose live, bounded activity and completed reviews render the same Markdown shape;
 - editor responsiveness remains unaffected while idle.
