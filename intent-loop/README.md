@@ -27,6 +27,11 @@ monitor the agent.
   reusable prompts, subagents, settings, rules, hooks, MCP, plugins, and output styles—and opens or
   creates safe starter files from one workspace.
 - Optionally ingests normalized local Codex and Claude hook events.
+- Runs explicit, read-only semantic reviews through an installed Codex or Claude CLI, records
+  structured findings with file/line evidence, and marks results stale when the diff changes.
+- Streams a terminal-style, memory-only transcript into the Review view while the CLI is running,
+  including assistant messages, tool calls, commands, and bounded tool output. Completed Codex and
+  Claude results use the same concise Markdown report format.
 
 ## Local-only boundary
 
@@ -34,8 +39,9 @@ VibeCheck has no account, hosted backend, product telemetry, external LLM, or re
 connection. Repository contents, findings, command output, agent metadata, and reports stay on the
 machine.
 
-Codex and Claude may communicate with their own providers during normal use. VibeCheck adds no
-upload path.
+VibeCheck invokes Codex or Claude only when you select **Run code review** and choose a provider.
+That provider may send repository content to its configured service under its own authentication
+and data controls. VibeCheck stores only the structured review result in VS Code workspace state.
 
 The optional hook bridge deliberately excludes prompt text, assistant messages, transcripts, tool
 arguments, and tool output. It retains only lifecycle metadata in `~/.intent-loop/events.jsonl`,
@@ -47,7 +53,7 @@ rotated at 5 MB with one previous segment.
 npm install
 npm run verify
 npm run package:vsix
-code --install-extension vibecheck-0.6.1.vsix --force
+code --install-extension vibecheck-0.6.4.vsix --force
 ```
 
 Reload VS Code and open the VibeCheck icon in the Activity Bar.
@@ -60,11 +66,12 @@ the rename does not discard workspace state, trusted commands, or existing confi
 
 1. Open a Git-backed workspace.
 2. Use Codex, Claude, or manual editing normally; use VS Code Source Control for files and diffs.
-3. Run individual quality gates or **Run all checks** whenever you need current evidence.
-4. Inspect, accept, or dismiss high-signal findings in **Needs attention**.
-5. Create an evidence report or copy a concrete agent follow-up.
-6. Review repository agent capabilities and open or create their files under **Agent workspace**.
-7. Commit normally. VibeCheck detects the new `HEAD` and begins monitoring uncommitted work against
+3. Run a semantic review from **Review** and choose the installed Codex or Claude CLI.
+4. Run individual quality gates or **Run all checks** whenever you need current evidence.
+5. Inspect, accept, or dismiss high-signal deterministic findings in **Needs attention**.
+6. Create an evidence report or copy a concrete agent follow-up.
+7. Review repository agent capabilities and open or create their files under **Agent workspace**.
+8. Commit normally. VibeCheck detects the new `HEAD` and begins monitoring uncommitted work against
    that commit automatically.
 
 The readiness badge is deliberately conservative. Required checks must pass and high-risk findings
@@ -73,9 +80,11 @@ The quality-gate overview shows the latest test totals, line coverage, and depen
 count at a glance. Each gate retains its structured result, run time, duration, and freshness state.
 VibeCheck never stages or commits code, and it deliberately leaves file and diff UX to VS Code.
 
-The Control Center is organized around four focused views:
+The Control Center is organized around five focused views:
 
 - **Overview:** release readiness, the next recommended action, current metrics, and evidence export.
+- **Review:** live Codex or Claude activity, elapsed time, structured findings, evidence links,
+  freshness, and a provider-neutral Markdown preview.
 - **Quality:** detailed quality-gate results, structured metrics, timestamps, output, and configuration.
 - **Attention:** unresolved and reviewed findings with explicit review decisions.
 - **Workspace:** the active plan, repository agent capabilities, adapters, and local monitoring data.

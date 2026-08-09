@@ -17,6 +17,9 @@ product-facing control center:
 - M7 guided sidebar workflow, explicit quality-gate categories, and continuous readiness.
 - M8 repository Markdown plan discovery, progress extraction, and local active-plan selection.
 - M9 automatic commit-boundary tracking, evidence reporting, and Codex/Claude workspace file management.
+- M10 explicit Codex/Claude semantic code review with structured evidence and diff freshness.
+- M11 live provider-neutral review activity and consistent Markdown review reports.
+- M12 detailed memory-only CLI review transcripts with assistant, tool, command, and output events.
 
 Remaining work is product validation and hardening rather than missing core workflow: sustained
 dogfooding, VS Code-host integration automation, multi-root support, performance measurement on

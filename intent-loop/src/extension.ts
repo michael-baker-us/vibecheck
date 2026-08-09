@@ -10,10 +10,13 @@ import { AgentFileCollector } from "./collectors/agent-file-collector";
 import { GitCollector } from "./collectors/git-collector";
 import { PlanCollector } from "./collectors/plan-collector";
 import { ConfigLoader } from "./config/config-loader";
+import { CodeReviewFinding, CodeReviewProvider } from "./domain/code-review";
 import { Finding } from "./domain/findings";
 import { ObservationController } from "./observation-controller";
 import { buildFollowUpPrompt } from "./prompts/follow-up-builder";
 import { buildMarkdownReport } from "./reports/markdown-report";
+import { buildCodeReviewMarkdown } from "./reports/code-review-markdown";
+import { CodeReviewService } from "./reviews/code-review-service";
 import { WorkspaceStore } from "./storage/workspace-store";
 import { FindingDiagnostics } from "./ui/diagnostics";
 import { ControlCenterProvider } from "./ui/control-center";
@@ -38,6 +41,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => controller.getSnapshot(),
     () => controller.getConfiguration(),
     () => controller.getConfigurationError(),
+    () => controller.getReviewTranscript(),
   );
   controller = new ObservationController(
     workspaceFolder,
@@ -48,6 +52,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     new ConfigLoader(),
     new AnalysisEngine(),
     new VerificationService(git),
+    new CodeReviewService(),
     () => {
       const snapshot = controller.getSnapshot();
       controlCenter.refresh();
@@ -105,6 +110,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await runVerification(controller, definition.name);
       }
     }),
+    vscode.commands.registerCommand("intentLoop.runCodeReview", () => runCodeReview(controller)),
+    vscode.commands.registerCommand("intentLoop.inspectCodeReviewFinding", (findingId?: string) =>
+      inspectCodeReviewFinding(controller, findingId),
+    ),
+    vscode.commands.registerCommand("intentLoop.previewCodeReview", () => previewCodeReview(controller)),
     vscode.commands.registerCommand("intentLoop.showVerificationOutput", async (argument?: string) => {
       const name = argument ?? (await chooseVerification(controller, "Select verification output"));
       if (!name) return;
@@ -354,6 +364,100 @@ async function runVerificationCommand(
 ): Promise<void> {
   const name = argument ?? (await chooseVerification(controller, "Run verification"));
   if (name) await runVerification(controller, name);
+}
+
+async function runCodeReview(controller: ObservationController): Promise<void> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready") return;
+  if (!snapshot.state.changedFiles.length) {
+    void vscode.window.showInformationMessage("There are no uncommitted changes to review.");
+    return;
+  }
+  if (!vscode.workspace.isTrusted) {
+    void vscode.window.showWarningMessage("Trust this VS Code workspace before invoking a review provider.");
+    return;
+  }
+  const choice = await vscode.window.showQuickPick(
+    [
+      { label: "Codex", description: "Run codex exec review against uncommitted changes", provider: "codex" as const },
+      { label: "Claude", description: "Run Claude Code in read-only review mode", provider: "claude" as const },
+    ],
+    { title: "Choose a code review provider", placeHolder: "Repository content is processed by the selected provider" },
+  );
+  if (!choice) return;
+  const provider: CodeReviewProvider = choice.provider;
+  try {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `VibeCheck: ${choice.label} code review`,
+        cancellable: true,
+      },
+      async (_progress, token) => {
+        const abort = new AbortController();
+        token.onCancellationRequested(() => abort.abort());
+        await controller.runCodeReview(provider, abort.signal);
+      },
+    );
+    const current = controller.getSnapshot();
+    const count = current.kind === "ready" ? current.state.codeReview?.findings.length ?? 0 : 0;
+    void vscode.window.showInformationMessage(`${choice.label} review completed with ${count} finding${count === 1 ? "" : "s"}.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    void vscode.window.showErrorMessage(`${choice.label} review failed: ${message}`);
+  }
+}
+
+async function inspectCodeReviewFinding(
+  controller: ObservationController,
+  findingId?: string,
+): Promise<void> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready" || !findingId) return;
+  const finding = snapshot.state.codeReview?.findings.find((item) => item.id === findingId);
+  if (!finding) return;
+  await openCodeReviewEvidence(snapshot.state.repositoryRoot, finding);
+}
+
+async function previewCodeReview(controller: ObservationController): Promise<void> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready" || !snapshot.state.codeReview) {
+    void vscode.window.showInformationMessage("Run a code review before opening its Markdown report.");
+    return;
+  }
+  const document = await vscode.workspace.openTextDocument({
+    language: "markdown",
+    content: buildCodeReviewMarkdown(snapshot.state.codeReview, { branch: snapshot.state.headBranch }),
+  });
+  await vscode.window.showTextDocument(document, { preview: true });
+  await vscode.commands.executeCommand("markdown.showPreview", document.uri);
+}
+
+async function openCodeReviewEvidence(repositoryRoot: string, finding: CodeReviewFinding): Promise<void> {
+  if (finding.path) {
+    const absolutePath = path.resolve(repositoryRoot, finding.path);
+    const relative = path.relative(repositoryRoot, absolutePath);
+    if (!relative.startsWith("..") && !path.isAbsolute(relative)) {
+      try {
+        const document = await vscode.workspace.openTextDocument(absolutePath);
+        const editor = await vscode.window.showTextDocument(document);
+        if (finding.line) {
+          const start = new vscode.Position(Math.max(0, finding.line - 1), 0);
+          const end = new vscode.Position(Math.max(0, (finding.endLine ?? finding.line) - 1), 0);
+          editor.selection = new vscode.Selection(start, end);
+          editor.revealRange(new vscode.Range(start, end), vscode.TextEditorRevealType.InCenter);
+        }
+        return;
+      } catch {
+        // Fall through to a review detail document when the referenced file is unavailable.
+      }
+    }
+  }
+  const document = await vscode.workspace.openTextDocument({
+    language: "markdown",
+    content: `# ${finding.title}\n\n${finding.explanation}`,
+  });
+  await vscode.window.showTextDocument(document, { preview: true });
 }
 
 async function chooseVerification(

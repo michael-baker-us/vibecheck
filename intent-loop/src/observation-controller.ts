@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as path from "node:path";
 
 import * as vscode from "vscode";
@@ -9,6 +10,7 @@ import { PlanCollector } from "./collectors/plan-collector";
 import { WorkspaceWatcher } from "./collectors/workspace-watcher";
 import { ConfigLoader } from "./config/config-loader";
 import { AgentEvent } from "./domain/agent-events";
+import { CodeReviewProvider, CodeReviewTranscriptEntry } from "./domain/code-review";
 import {
   DEFAULT_CONFIGURATION,
   IntentLoopConfiguration,
@@ -20,6 +22,7 @@ import {
   ObservationState,
 } from "./domain/observation-state";
 import { WorkspaceStore } from "./storage/workspace-store";
+import { CodeReviewService } from "./reviews/code-review-service";
 import { VerificationService } from "./verification/verification-service";
 
 export class ObservationController implements vscode.Disposable {
@@ -32,6 +35,8 @@ export class ObservationController implements vscode.Disposable {
   private watcher: WorkspaceWatcher | undefined;
   private refreshInFlight: Promise<void> | undefined;
   private refreshRequested = false;
+  private reviewActivityQueue: Promise<void> = Promise.resolve();
+  private reviewTranscript: CodeReviewTranscriptEntry[] = [];
 
   public constructor(
     private readonly workspaceFolder: vscode.WorkspaceFolder,
@@ -42,6 +47,7 @@ export class ObservationController implements vscode.Disposable {
     private readonly configLoader: ConfigLoader,
     private readonly analyzer: AnalysisEngine,
     private readonly verificationService: VerificationService,
+    private readonly codeReviews: CodeReviewService,
     private readonly onStateChanged: () => void,
     private readonly output: vscode.OutputChannel,
   ) {}
@@ -56,6 +62,10 @@ export class ObservationController implements vscode.Disposable {
 
   public getConfigurationError(): string | undefined {
     return this.configurationError;
+  }
+
+  public getReviewTranscript(): CodeReviewTranscriptEntry[] {
+    return this.reviewTranscript;
   }
 
   public async getDiff(relativePath?: string): Promise<string> {
@@ -218,6 +228,103 @@ export class ObservationController implements vscode.Disposable {
     await this.refresh();
   }
 
+  public async runCodeReview(provider: CodeReviewProvider, signal?: AbortSignal): Promise<void> {
+    if (this.snapshot.kind !== "ready") return;
+    const state = this.snapshot.state;
+    const changeFingerprint = this.changeFingerprint(state.changedFiles);
+    const startedAt = new Date().toISOString();
+    this.reviewActivityQueue = Promise.resolve();
+    this.reviewTranscript = [];
+    await this.mutateState((current) => ({
+      ...current,
+      codeReview: {
+        provider,
+        status: "running",
+        baselineCommit: state.baselineCommit,
+        changeFingerprint,
+        startedAt,
+        findings: [],
+        activity: [{ at: startedAt, label: `Starting ${provider === "codex" ? "Codex" : "Claude"} review` }],
+      },
+    }));
+    try {
+      const result = await this.codeReviews.run(provider, state.repositoryRoot, signal, (progress) => {
+        this.reviewActivityQueue = this.reviewActivityQueue.then(() =>
+          this.appendReviewActivity(provider, startedAt, progress.label, progress.detail));
+      }, (entry) => this.appendReviewTranscript(entry));
+      await this.reviewActivityQueue;
+      await this.mutateState((current) => ({
+        ...current,
+        codeReview: {
+          provider,
+          status: this.changeFingerprint(current.changedFiles) === changeFingerprint ? "completed" : "stale",
+          baselineCommit: state.baselineCommit,
+          changeFingerprint,
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          summary: result.summary,
+          findings: result.findings,
+          activity: current.codeReview?.activity ?? [],
+        },
+      }));
+    } catch (error) {
+      const message = this.errorMessage(error);
+      this.appendReviewTranscript({ kind: "error", label: "Review stopped", content: message });
+      await this.mutateState((current) => ({
+        ...current,
+        codeReview: {
+          provider,
+          status: "failed",
+          baselineCommit: state.baselineCommit,
+          changeFingerprint,
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          findings: [],
+          activity: current.codeReview?.activity ?? [],
+          error: message,
+        },
+      }));
+      throw error;
+    }
+  }
+
+  private appendReviewTranscript(entry: Omit<CodeReviewTranscriptEntry, "at">): void {
+    const next = [...this.reviewTranscript, { ...entry, at: new Date().toISOString() }].slice(-100);
+    let bytes = 0;
+    const bounded: CodeReviewTranscriptEntry[] = [];
+    for (let index = next.length - 1; index >= 0; index -= 1) {
+      const size = Buffer.byteLength(JSON.stringify(next[index]), "utf8");
+      if (bounded.length && bytes + size > 64 * 1024) break;
+      bytes += size;
+      bounded.unshift(next[index]);
+    }
+    this.reviewTranscript = bounded;
+    this.onStateChanged();
+  }
+
+  private async appendReviewActivity(
+    provider: CodeReviewProvider,
+    startedAt: string,
+    label: string,
+    detail?: string,
+  ): Promise<void> {
+    await this.mutateState((state) => {
+      const review = state.codeReview;
+      if (!review || review.provider !== provider || review.startedAt !== startedAt || review.status !== "running") {
+        return state;
+      }
+      const previous = review.activity.at(-1);
+      if (previous?.label === label && previous.detail === detail) return state;
+      return {
+        ...state,
+        codeReview: {
+          ...review,
+          activity: [...review.activity, { at: new Date().toISOString(), label, detail }].slice(-20),
+        },
+      };
+    });
+  }
+
   public async refresh(): Promise<void> {
     if (this.refreshInFlight) {
       this.refreshRequested = true;
@@ -282,6 +389,11 @@ export class ObservationController implements vscode.Disposable {
         this.configuration,
         commitAdvanced ? [] : this.snapshot.state.findings,
       );
+      const codeReview = this.snapshot.state.codeReview
+        && this.snapshot.state.codeReview.status === "completed"
+        && this.snapshot.state.codeReview.changeFingerprint !== this.changeFingerprint(changedFiles)
+        ? { ...this.snapshot.state.codeReview, status: "stale" as const }
+        : this.snapshot.state.codeReview;
       await this.updateState({
         ...this.snapshot.state,
         baselineCommit,
@@ -293,6 +405,7 @@ export class ObservationController implements vscode.Disposable {
         activePlan,
         agentFiles,
         findings,
+        codeReview,
         verification,
         lastUpdatedAt: new Date().toISOString(),
       });
@@ -301,6 +414,15 @@ export class ObservationController implements vscode.Disposable {
       this.output.appendLine(`Refresh failed: ${this.errorMessage(error)}`);
       void vscode.window.showWarningMessage(`VibeCheck refresh failed: ${this.errorMessage(error)}`);
     }
+  }
+
+  private changeFingerprint(changedFiles: ObservationState["changedFiles"]): string {
+    const hash = createHash("sha256");
+    for (const change of changedFiles) {
+      hash.update(change.path).update("\0").update(change.status).update("\0");
+      hash.update(change.before ?? "").update("\0").update(change.after ?? "").update("\0");
+    }
+    return hash.digest("hex");
   }
 
   private async replaceVerification(replacement: ObservationState["verification"][number]): Promise<void> {

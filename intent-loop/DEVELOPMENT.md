@@ -33,7 +33,7 @@ The pre-launch task runs TypeScript in watch mode. Extension runtime output is a
 
 ```bash
 npm run package:vsix
-code --install-extension vibecheck-0.6.1.vsix --force
+code --install-extension vibecheck-0.6.4.vsix --force
 ```
 
 Reload the target VS Code window after installing a new build.
@@ -57,6 +57,9 @@ local agent events ────────┘
 - `collectors/plan-collector.ts` discovers and parses repository Markdown plans without editing them.
 - `analyzers/` contains pure deterministic risk logic.
 - `verification/` runs trusted commands and hashes relevant inputs.
+- `reviews/` invokes replaceable Codex or Claude CLI providers in read-only mode and validates their
+  structured output before it enters workspace state. Observable provider events also feed a bounded,
+  memory-only terminal transcript; hidden reasoning is neither displayed nor persisted.
 - `adapters/` installs and ingests optional local agent hooks.
 - `ui/` renders the VS Code sidebar control center, status bar, and diagnostics.
 
@@ -64,7 +67,9 @@ local agent events ────────┘
 
 Agent bridge tests assert that prompt content is not persisted. Adapter tests use temporary home
 directories and never modify actual Codex or Claude settings. Verification output is bounded and
-redacts common secret assignments before persistence.
+redacts common secret assignments before persistence. Semantic review is never automatic: the user
+chooses a provider for each run, and the provider may process repository content using its configured
+remote service.
 
 ## Manual evaluation
 
@@ -83,4 +88,6 @@ During a real agent task, check:
 - test totals, coverage percentages, and npm-audit new/fixed counts agree with command output;
 - repeat coverage and security runs show movement relative to the immediately preceding run;
 - generated evidence reports agree with the Control Center quality-gate summaries;
+- Codex and Claude reviews return inspectable file/line evidence and become stale after relevant edits;
+- running reviews expose live, bounded activity and completed reviews render the same Markdown shape;
 - editor responsiveness remains unaffected while idle.

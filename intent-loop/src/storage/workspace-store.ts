@@ -5,7 +5,9 @@ import {
   ObservationState,
 } from "../domain/observation-state";
 
-const OBSERVATION_STATE_KEY = "intentLoop.observationState.v4";
+const OBSERVATION_STATE_KEY = "intentLoop.observationState.v6";
+const VERSION_FIVE_STATE_KEY = "intentLoop.observationState.v5";
+const VERSION_FOUR_STATE_KEY = "intentLoop.observationState.v4";
 const VERSION_THREE_STATE_KEY = "intentLoop.observationState.v3";
 const VERSION_TWO_STATE_KEY = "intentLoop.observationState.v2";
 const LEGACY_STATE_KEY = "intentLoop.observationState.v1";
@@ -18,6 +20,15 @@ type LegacyObservationState = {
   lastUpdatedAt: string;
   paused: boolean;
   changedPaths: string[];
+};
+
+type VersionFiveObservationState = Omit<ObservationState, "version" | "codeReview"> & {
+  version: 5;
+  codeReview?: Omit<NonNullable<ObservationState["codeReview"]>, "baselineCommit" | "activity">;
+};
+
+type VersionFourObservationState = Omit<ObservationState, "version" | "codeReview"> & {
+  version: 4;
 };
 
 type VersionThreeObservationState = Omit<ObservationState, "version" | "agentFiles"> & {
@@ -36,6 +47,24 @@ export class WorkspaceStore {
     const current = this.state.get<ObservationState>(OBSERVATION_STATE_KEY);
     if (current?.version === OBSERVATION_STATE_VERSION) {
       return current;
+    }
+
+    const versionFive = this.state.get<VersionFiveObservationState>(VERSION_FIVE_STATE_KEY);
+    if (versionFive?.version === 5) {
+      return {
+        ...versionFive,
+        version: OBSERVATION_STATE_VERSION,
+        codeReview: versionFive.codeReview ? {
+          ...versionFive.codeReview,
+          baselineCommit: versionFive.baselineCommit,
+          activity: [],
+        } : undefined,
+      };
+    }
+
+    const versionFour = this.state.get<VersionFourObservationState>(VERSION_FOUR_STATE_KEY);
+    if (versionFour?.version === 4) {
+      return { ...versionFour, version: OBSERVATION_STATE_VERSION };
     }
 
     const versionThree = this.state.get<VersionThreeObservationState>(VERSION_THREE_STATE_KEY);
@@ -73,6 +102,8 @@ export class WorkspaceStore {
     await Promise.all([
       this.state.update(VERSION_TWO_STATE_KEY, undefined),
       this.state.update(VERSION_THREE_STATE_KEY, undefined),
+      this.state.update(VERSION_FOUR_STATE_KEY, undefined),
+      this.state.update(VERSION_FIVE_STATE_KEY, undefined),
       this.state.update(LEGACY_STATE_KEY, undefined),
     ]);
   }
@@ -82,6 +113,8 @@ export class WorkspaceStore {
       this.state.update(OBSERVATION_STATE_KEY, undefined),
       this.state.update(VERSION_TWO_STATE_KEY, undefined),
       this.state.update(VERSION_THREE_STATE_KEY, undefined),
+      this.state.update(VERSION_FOUR_STATE_KEY, undefined),
+      this.state.update(VERSION_FIVE_STATE_KEY, undefined),
       this.state.update(LEGACY_STATE_KEY, undefined),
     ]);
   }

@@ -1,6 +1,7 @@
 import { ObservationState } from "../domain/observation-state";
 import { currentPlanTask, planProgress } from "../domain/plans";
 import { VerificationState, VerificationSummary } from "../domain/verification";
+import { buildCodeReviewSection } from "./code-review-markdown";
 
 export function buildMarkdownReport(state: ObservationState): string {
   const lines = [
@@ -36,6 +37,12 @@ export function buildMarkdownReport(state: ObservationState): string {
       }
       lines.push("");
     }
+  }
+
+  if (!state.codeReview) {
+    lines.push("## Code review", "", "No semantic code review has been run.", "");
+  } else {
+    lines.push(buildCodeReviewSection(state.codeReview));
   }
 
   lines.push("## Quality gates", "");

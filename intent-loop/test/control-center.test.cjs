@@ -9,9 +9,12 @@ test("ships a syntactically valid task-oriented Control Center", () => {
 
   assert.ok(script, "expected an embedded webview script");
   assert.doesNotThrow(() => new Function(script));
-  for (const view of ["Overview", "Quality", "Attention", "Workspace"]) {
+  for (const view of ["Overview", "Review", "Quality", "Attention", "Workspace"]) {
     assert.match(source, new RegExp(`'${view}'`));
   }
   assert.match(source, /Release readiness/);
   assert.match(source, /next-action/);
+  assert.match(source, /Run code review/);
+  assert.match(source, /Live CLI review/);
+  assert.match(source, /review-terminal/);
 });

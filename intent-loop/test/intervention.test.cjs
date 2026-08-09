@@ -5,7 +5,7 @@ const { buildFollowUpPrompt } = require("../dist/prompts/follow-up-builder");
 const { buildMarkdownReport } = require("../dist/reports/markdown-report");
 
 const state = {
-  version: 4,
+  version: 6,
   workspaceRoot: "/tmp/repo",
   repositoryRoot: "/tmp/repo",
   baselineCommit: "abc123",
@@ -37,6 +37,24 @@ const state = {
       lastObservedAt: "2026-01-01T00:01:00.000Z",
     },
   ],
+  codeReview: {
+    provider: "codex",
+    status: "completed",
+    baselineCommit: "abc123",
+    changeFingerprint: "review-fingerprint",
+    startedAt: "2026-01-01T00:00:10.000Z",
+    finishedAt: "2026-01-01T00:00:20.000Z",
+    summary: "One actionable issue.",
+    findings: [{
+      id: "review-1",
+      title: "Fallback can return stale state",
+      explanation: "The changed branch skips state refresh.",
+      severity: "high",
+      path: "src/input.ts",
+      line: 4,
+    }],
+    activity: [],
+  },
   verification: [
     {
       name: "tests",
@@ -62,6 +80,8 @@ test("builds a concrete follow-up prompt and local review", () => {
   assert.match(report, /# VibeCheck Evidence Report/);
   assert.match(report, /PLAN\.md/);
   assert.match(report, /HIGH: Tests are stale/);
+  assert.match(report, /Provider: codex/);
+  assert.match(report, /HIGH — Fallback can return stale state/);
   assert.match(report, /\| tests \| stale \|/);
   assert.match(report, /11\/12 passed, 1 failed/);
   assert.match(report, /1\.3 s/);

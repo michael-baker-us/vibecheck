@@ -13,6 +13,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     private readonly getSnapshot: () => ObservationSnapshot,
     private readonly getConfiguration: () => IntentLoopConfiguration,
     private readonly getConfigurationError: () => string | undefined,
+    private readonly getReviewTranscript: () => Array<{ at: string; kind: string; label: string; content?: string }>,
   ) {}
 
   public resolveWebviewView(view: vscode.WebviewView): void {
@@ -48,6 +49,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
             configuration.verification.map((definition) => [definition.name, categoryFor(definition)]),
           ),
           configurationError: this.getConfigurationError(),
+          reviewTranscript: this.getReviewTranscript(),
         }
       : snapshot;
     void this.view.webview.postMessage({ type: "state", payload });
@@ -63,6 +65,8 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       pause: "intentLoop.pause",
       resume: "intentLoop.start",
       "run-all": "intentLoop.runAllVerification",
+      "run-review": "intentLoop.runCodeReview",
+      "preview-review": "intentLoop.previewCodeReview",
       "check-output-menu": "intentLoop.showVerificationOutput",
       "copy-prompt": "intentLoop.copyPrompt",
       export: "intentLoop.createReport",
@@ -83,6 +87,10 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     if (snapshot.kind !== "ready" || !id) return;
     if (message.action === "manage-agent-file") {
       await vscode.commands.executeCommand("intentLoop.manageAgentFile", id);
+      return;
+    }
+    if (message.action === "inspect-review") {
+      await vscode.commands.executeCommand("intentLoop.inspectCodeReviewFinding", id);
       return;
     }
     const finding = snapshot.state.findings.find((item) => item.id === id);
@@ -200,6 +208,26 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     .danger { color:var(--vscode-errorForeground)!important; }
     .footer { text-align:center; font-size:11px; color:var(--panel-muted); padding:4px; overflow-wrap:anywhere; }
     .section-intro { color:var(--panel-muted); font-size:11px; padding:0 1px; }
+    .review-preview { display:grid; gap:7px; padding:9px; border:1px solid var(--panel-border); border-radius:6px; background:var(--panel-background); }
+    .review-preview-head { display:flex; align-items:center; gap:7px; font-weight:650; }
+    .review-pulse { width:8px; height:8px; border-radius:50%; background:var(--vscode-progressBar-background); box-shadow:0 0 0 0 color-mix(in srgb,var(--vscode-progressBar-background) 55%,transparent); animation:review-pulse 1.6s infinite; }
+    .review-activity { display:grid; gap:5px; margin:0; padding:0; list-style:none; }
+    .review-activity li { display:grid; grid-template-columns:auto minmax(0,1fr); gap:7px; color:var(--panel-muted); font-size:10px; }
+    .review-activity time { font-variant-numeric:tabular-nums; }
+    .review-activity strong { color:var(--vscode-foreground); font-weight:550; }
+    .review-activity span { overflow-wrap:anywhere; }
+    .review-terminal { max-height:420px; overflow:auto; border:1px solid var(--panel-border); border-radius:6px; background:var(--vscode-textCodeBlock-background,var(--vscode-editor-background)); color:var(--vscode-editor-foreground,var(--vscode-foreground)); }
+    .review-terminal-head { position:sticky; top:0; z-index:1; display:flex; justify-content:space-between; gap:8px; padding:7px 9px; border-bottom:1px solid var(--panel-border); background:var(--panel-surface-strong); font-size:10px; }
+    .review-terminal-head span:last-child { color:var(--panel-muted); }
+    .review-terminal-entry { padding:8px 9px; border-bottom:1px solid color-mix(in srgb,var(--panel-border) 65%,transparent); }
+    .review-terminal-entry:last-child { border-bottom:0; }
+    .review-terminal-meta { display:flex; align-items:center; gap:7px; color:var(--panel-muted); font:10px/1.35 var(--vscode-editor-font-family,var(--vscode-font-family)); }
+    .review-terminal-kind { color:var(--vscode-symbolIcon-functionForeground,var(--vscode-focusBorder)); text-transform:uppercase; font-weight:700; }
+    .review-terminal-entry.tool .review-terminal-kind { color:var(--vscode-symbolIcon-methodForeground,var(--vscode-testing-iconPassed)); }
+    .review-terminal-entry.output .review-terminal-kind { color:var(--panel-muted); }
+    .review-terminal-entry.error .review-terminal-kind { color:var(--vscode-errorForeground); }
+    .review-terminal-entry pre { margin:6px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; color:inherit; font:11px/1.45 var(--vscode-editor-font-family,monospace); }
+    @keyframes review-pulse { 70% { box-shadow:0 0 0 5px transparent; } 100% { box-shadow:0 0 0 0 transparent; } }
     @media (max-width: 360px) {
       .shell { gap:9px; padding:8px; }
       .nav { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -253,8 +281,8 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     brandCopy.append(el('div','brand-name','VibeCheck'),el('div','brand-context',(s.headBranch||'detached HEAD')+' · '+s.baselineCommit.slice(0,8)));
     brand.append(el('div','brand-mark','V'),brandCopy); product.append(brand,button('Refresh','refresh',undefined,'ghost')); app.append(product);
 
-    const pages={overview:el('section','page'),quality:el('section','page'),attention:el('section','page'),workspace:el('section','page')};
-    const nav=el('nav','nav'), navItems=[['overview','Overview'],['quality','Quality'],['attention','Attention'+(open.length?' · '+open.length:'')],['workspace','Workspace']];
+    const pages={overview:el('section','page'),review:el('section','page'),quality:el('section','page'),attention:el('section','page'),workspace:el('section','page')};
+    const nav=el('nav','nav'), navItems=[['overview','Overview'],['review','Review'],['quality','Quality'],['attention','Attention'+(open.length?' · '+open.length:'')],['workspace','Workspace']];
     const savedView=(vscode.getState()||{}).activeView, initialView=pages[savedView]?savedView:'overview';
     const showView=view=>{ Object.entries(pages).forEach(([key,page])=>page.hidden=key!==view); nav.querySelectorAll('.nav-btn').forEach(item=>item.setAttribute('aria-selected',String(item.dataset.view===view))); vscode.setState({...vscode.getState(),activeView:view}); };
     navItems.forEach(([view,label])=>{ const item=el('button','nav-btn',label); item.type='button'; item.dataset.view=view; item.setAttribute('aria-selected','false'); item.onclick=()=>showView(view); nav.append(item); }); app.append(nav);
@@ -272,8 +300,30 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     else if(unfinished){ nextCopy.append(el('strong','','Refresh required evidence'),el('span','','Run pending or stale checks against the current files.')); next.append(nextCopy,button('Run checks','run-all',undefined,'primary')); }
     else { nextCopy.append(el('strong','','Capture the evidence'),el('span','','All required checks are current. Export a review snapshot.')); next.append(nextCopy,button('Create report','export',undefined,'primary')); }
     hero.append(next);
-    const primary=el('div','actions'); primary.append(button('Run all checks','run-all',undefined,'primary'),button('Create report','export'),button('Copy agent follow-up','copy-prompt'),button('Open active plan','open-plan',undefined,'ghost')); hero.append(primary);
+    const primary=el('div','actions'); primary.append(button('Run code review','run-review',undefined,'primary'),button('Run all checks','run-all'),button('Create report','export'),button('Copy agent follow-up','copy-prompt'),button('Open active plan','open-plan',undefined,'ghost')); hero.append(primary);
     pages.overview.append(hero,qualityMetrics(true));
+
+    pages.review.append(el('div','section-intro','Ask Codex or Claude to review the current uncommitted diff. Results are local VibeCheck state and become stale when the diff changes.'));
+    const review=section('Code review',s.codeReview?s.codeReview.findings.length:'not run');
+    const reviewState=s.codeReview;
+    if(!reviewState){ const c=el('div','callout'); c.append(el('strong','','No semantic review yet'),el('p','','Choose a provider to inspect the current working-tree changes.')); review.content.append(c,button('Run code review','run-review',undefined,'primary')); }
+    else {
+      const tone=reviewState.status==='completed'?'ready':reviewState.status==='failed'?'blocked':'incomplete';
+      const head=el('div','item-head'); head.append(el('span','item-title',(reviewState.provider==='codex'?'Codex':'Claude')+' review'),el('span','badge '+tone,reviewState.status));
+      const reviewMeta=el('div','meta','Started '+new Date(reviewState.startedAt).toLocaleString()+(reviewState.finishedAt?' · finished '+new Date(reviewState.finishedAt).toLocaleTimeString():''));
+      if(reviewState.status==='running'){ reviewMeta.dataset.reviewStarted=reviewState.startedAt; }
+      const overview=el('div','item'); overview.append(head,reviewMeta);
+      if(reviewState.summary) overview.append(el('p','',reviewState.summary));
+      if(reviewState.error) overview.append(el('div','callout danger',reviewState.error));
+      const reviewActions=el('div','item-actions'),rerun=button(reviewState.status==='running'?'Review running…':'Run another review','run-review',undefined,reviewState.status==='running'?'secondary':'primary'); rerun.disabled=reviewState.status==='running'; reviewActions.append(rerun); if(reviewState.status!=='running')reviewActions.append(button('Open Markdown preview','preview-review',undefined,'ghost')); overview.append(reviewActions);
+      review.content.append(overview);
+      const transcript=data.reviewTranscript||[]; if(transcript.length){ const terminal=el('div','review-terminal'),terminalHead=el('div','review-terminal-head'); terminalHead.append(el('strong','',reviewState.status==='running'?'Live CLI review':'CLI review transcript'),el('span','',reviewState.status==='running'?'streaming · memory only':'memory only')); terminal.append(terminalHead); transcript.forEach(entry=>{ const row=el('div','review-terminal-entry '+entry.kind),meta=el('div','review-terminal-meta'); meta.append(el('span','review-terminal-kind',entry.kind),el('time','',new Date(entry.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})),el('strong','',entry.label)); row.append(meta); if(entry.content)row.append(el('pre','',entry.content)); terminal.append(row); }); review.content.append(terminal); requestAnimationFrame(()=>{ terminal.scrollTop=terminal.scrollHeight; }); }
+      if(!transcript.length&&reviewState.activity&&reviewState.activity.length){ const preview=el('div','review-preview'),previewHead=el('div','review-preview-head'); if(reviewState.status==='running')previewHead.append(el('i','review-pulse')); previewHead.append(el('span','',reviewState.status==='running'?'Review activity':'Activity summary')); const activity=el('ol','review-activity'); reviewState.activity.slice(-8).forEach(entry=>{ const row=el('li'),time=el('time','',new Date(entry.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})),copy=el('span'); copy.append(el('strong','',entry.label)); if(entry.detail)copy.append(document.createTextNode(' · '+entry.detail)); row.append(time,copy); activity.append(row); }); preview.append(previewHead,activity); review.content.append(preview); }
+      if(reviewState.status==='stale') review.content.append(el('div','callout','The working-tree diff changed after this review. Run it again before relying on these findings.'));
+      if(!reviewState.findings.length&&reviewState.status==='completed') review.content.append(el('div','empty','No actionable defects reported.'));
+      reviewState.findings.forEach(f=>{ const item=el('div','item'),h=el('div','item-head'); h.append(el('span','item-title',f.title),el('span','badge '+(f.severity==='high'?'blocked':f.severity==='medium'?'incomplete':'neutral'),f.severity)); item.append(h,el('div','meta',(f.path||'Repository-level')+(f.line?':'+f.line:'')),el('p','',f.explanation)); if(f.path){ const a=el('div','item-actions'); a.append(button('Inspect','inspect-review',f.id,'secondary')); item.append(a); } review.content.append(item); });
+    }
+    pages.review.append(review.card);
 
     const gates=section('Quality gates',s.verification.length);
     pages.quality.append(el('div','section-intro','Run, inspect, and compare repository-owned checks. Passing evidence becomes stale when relevant inputs change.'));
@@ -320,6 +370,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     app.append(el('div','footer','Local only · '+(s.headBranch||'detached HEAD')+' · '+s.baselineCommit.slice(0,12)));
   }
   window.addEventListener('message',event=>{ if(event.data.type==='state') render(event.data.payload); });
+  setInterval(()=>{ document.querySelectorAll('[data-review-started]').forEach(node=>{ const elapsed=Math.max(0,Date.now()-Date.parse(node.dataset.reviewStarted)),seconds=Math.floor(elapsed/1000),minutes=Math.floor(seconds/60); node.textContent='Running · '+(minutes?minutes+'m ':'')+(seconds%60)+'s'; }); },1000);
   vscode.postMessage({action:'refresh'});
 </script></body></html>`;
   }

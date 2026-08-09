@@ -2,7 +2,7 @@
   "name": "intent-loop",
   "displayName": "VibeCheck",
   "description": "Local engineering confidence for AI-assisted coding.",
-  "version": "0.6.1",
+  "version": "0.6.4",
   "private": true,
   "publisher": "local",
   "license": "UNLICENSED",
@@ -66,6 +66,23 @@
         "title": "Run All Verification",
         "category": "VibeCheck",
         "icon": "$(beaker)"
+      },
+      {
+        "command": "intentLoop.runCodeReview",
+        "title": "Run Code Review",
+        "category": "VibeCheck",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "intentLoop.inspectCodeReviewFinding",
+        "title": "Inspect Code Review Finding",
+        "category": "VibeCheck"
+      },
+      {
+        "command": "intentLoop.previewCodeReview",
+        "title": "Preview Code Review Report",
+        "category": "VibeCheck",
+        "icon": "$(preview)"
       },
       {
         "command": "intentLoop.showVerificationOutput",
@@ -176,14 +193,19 @@
           "group": "navigation@3"
         },
         {
-          "command": "intentLoop.copyPrompt",
+          "command": "intentLoop.runCodeReview",
           "when": "view == intentLoop.overview",
           "group": "navigation@4"
         },
         {
-          "command": "intentLoop.openConfig",
+          "command": "intentLoop.copyPrompt",
           "when": "view == intentLoop.overview",
           "group": "navigation@5"
+        },
+        {
+          "command": "intentLoop.openConfig",
+          "when": "view == intentLoop.overview",
+          "group": "navigation@6"
         }
       ]
     },
@@ -214,7 +236,7 @@
     "coverage": "npm run compile && c8 --all --check-coverage --lines 80 --functions 75 --branches 60 --statements 80 --include='dist/adapters/adapter-installer.js' --include='dist/analyzers/**/*.js' --include='dist/collectors/agent-file-collector.js' --include='dist/collectors/git-collector.js' --include='dist/collectors/plan-collector.js' --include='dist/config/**/*.js' --include='dist/domain/plans.js' --include='dist/domain/quality-gates.js' --include='dist/prompts/**/*.js' --include='dist/reports/**/*.js' --include='dist/verification/**/*.js' --reporter=text node --test test/*.test.cjs",
     "security": "npm audit --json --audit-level=high",
     "verify": "npm run check && npm run coverage",
-    "package:vsix": "npm run verify && vsce package --out vibecheck-0.6.1.vsix --allow-missing-repository --skip-license --no-dependencies --no-rewrite-relative-links"
+    "package:vsix": "npm run verify && vsce package --out vibecheck-0.6.4.vsix --allow-missing-repository --skip-license --no-dependencies --no-rewrite-relative-links"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
