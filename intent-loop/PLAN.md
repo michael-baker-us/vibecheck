@@ -2,16 +2,17 @@
 
 ## Implementation status — 2026-08-09
 
-Version 0.2.0 implements the complete local repository-mode vertical slice and its first
+Version 0.3.0 implements the complete local repository-mode vertical slice and its first
 product-facing control center:
 
 - M0 repository observation, baseline state, native VS Code UI, and persistence;
 - M1 deterministic findings, provenance, lifecycle, diagnostics, and evidence navigation;
 - M2 trusted local verification, output redaction, input hashing, and freshness invalidation;
-- M3 working intent, follow-up prompts, finding resolution, and Markdown review export;
+- M3 plan-aware follow-up prompts, finding resolution, and Markdown review export;
 - M4/M5 optional local Claude and Codex lifecycle adapters using bounded normalized JSONL events;
 - M6 configured path boundaries for relative TypeScript and JavaScript imports.
 - M7 guided sidebar workflow, explicit quality-gate categories, readiness, and safe loop completion.
+- M8 repository Markdown plan discovery, progress extraction, and local active-plan selection.
 
 Remaining work is product validation and hardening rather than missing core workflow: sustained
 dogfooding, VS Code-host integration automation, multi-root support, performance measurement on
@@ -266,7 +267,7 @@ Goal: turn findings into better developer-agent interaction.
 
 Build:
 
-- optional one-line working intent;
+- alignment with an existing repository Markdown plan, with no duplicate intent field;
 - deterministic follow-up prompt templates;
 - `Copy Suggested Agent Prompt` action;
 - combined prompt for selected findings;

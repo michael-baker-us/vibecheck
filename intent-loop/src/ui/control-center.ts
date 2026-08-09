@@ -59,7 +59,8 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     if (typeof message.action !== "string") return;
     const id = typeof message.id === "string" ? message.id : undefined;
     const simpleCommands: Record<string, string> = {
-      "set-intent": "intentLoop.setIntent",
+      "select-plan": "intentLoop.selectPlan",
+      "open-plan": "intentLoop.openPlan",
       refresh: "intentLoop.refresh",
       pause: "intentLoop.pause",
       resume: "intentLoop.start",
@@ -134,9 +135,9 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     .ready { color: var(--vscode-testing-iconPassed); background: color-mix(in srgb, var(--vscode-testing-iconPassed) 13%, transparent); }
     .blocked { color: var(--vscode-testing-iconFailed); background: color-mix(in srgb, var(--vscode-testing-iconFailed) 13%, transparent); }
     .incomplete { color: var(--vscode-editorWarning-foreground); background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 13%, transparent); }
-    .intent { margin-top: 12px; padding: 10px; border-radius: 6px; background: var(--vscode-textBlockQuote-background); }
-    .intent strong { display:block; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--vscode-descriptionForeground); }
-    .intent span { display:block; margin-top:3px; }
+    .plan { margin-top: 12px; padding: 10px; border-radius: 6px; background: var(--vscode-textBlockQuote-background); }
+    .plan strong { display:block; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--vscode-descriptionForeground); }
+    .plan span { display:block; margin-top:3px; }
     .actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; margin-top: 10px; }
     .btn { min-height: 30px; padding: 5px 9px; border-radius: 4px; border: 1px solid var(--vscode-button-border, transparent); color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
     .btn:hover { background: var(--vscode-button-hoverBackground); }
@@ -181,9 +182,19 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     const s=data.state, open=s.findings.filter(f=>f.status==='open'), history=s.findings.filter(f=>f.status!=='open');
     const hero=el('section','hero'), top=el('div','hero-top');
     top.append(el('h1','', 'Intent Loop'),el('span','badge '+data.readiness.status,data.readiness.label)); hero.append(top);
-    const intent=el('div','intent'); intent.append(el('strong','', 'Current intent'),el('span','',s.workingIntent||'No intent set — give the agent a clear outcome.')); hero.append(intent);
+    const plan=el('div','plan'); plan.append(el('strong','', 'Active repository plan'));
+    if(s.activePlan){
+      plan.append(el('span','item-title',s.activePlan.title),el('div','meta',s.activePlan.path));
+      if(s.activePlan.excerpt) plan.append(el('p','',s.activePlan.excerpt));
+      if(s.activePlan.tasks.length){ const done=s.activePlan.tasks.filter(t=>t.status==='completed').length; plan.append(el('div','meta',done+'/'+s.activePlan.tasks.length+' steps complete')); }
+      const pa=el('div','item-actions'); pa.append(button('Open plan','open-plan'),button('Choose another','select-plan',undefined,'ghost')); plan.append(pa);
+    } else {
+      plan.append(el('span','', 'No Markdown plan detected in this repository.'));
+      const pa=el('div','item-actions'); pa.append(button('Choose plan','select-plan')); plan.append(pa);
+    }
+    hero.append(plan);
     const reasons=el('div',''); data.readiness.reasons.forEach(r=>reasons.append(el('p','reason','• '+r))); hero.append(reasons);
-    const primary=el('div','actions'); primary.append(button(s.workingIntent?'Edit intent':'Set intent','set-intent',undefined,'primary'),button('Run all checks','run-all',undefined,'primary'),button('Copy agent prompt','copy-prompt'),button('Finish this loop','complete')); hero.append(primary); app.append(hero);
+    const primary=el('div','actions'); primary.append(button('Run all checks','run-all',undefined,'primary'),button('Copy agent prompt','copy-prompt'),button('Finish this loop','complete')); hero.append(primary); app.append(hero);
 
     const gates=section('Quality gates',s.verification.length);
     if(data.configurationError) gates.content.append(el('div','callout danger','Configuration error: '+data.configurationError));

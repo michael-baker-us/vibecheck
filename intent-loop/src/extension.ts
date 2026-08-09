@@ -7,6 +7,7 @@ import { AdapterInstaller, SupportedAgent } from "./adapters/adapter-installer";
 import { LocalEventReader } from "./adapters/local-event-reader";
 import { AnalysisEngine } from "./analyzers/analysis-engine";
 import { GitCollector } from "./collectors/git-collector";
+import { PlanCollector } from "./collectors/plan-collector";
 import { ConfigLoader } from "./config/config-loader";
 import { Finding } from "./domain/findings";
 import { calculateReadiness, missingRecommendedCategories } from "./domain/quality-gates";
@@ -42,6 +43,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     workspaceFolder,
     new WorkspaceStore(context.workspaceState),
     git,
+    new PlanCollector(git),
     new ConfigLoader(),
     new AnalysisEngine(),
     new VerificationService(git),
@@ -69,7 +71,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("intentLoop.start", () => controller.resume()),
     vscode.commands.registerCommand("intentLoop.pause", () => controller.pause()),
     vscode.commands.registerCommand("intentLoop.refresh", () => controller.refresh()),
-    vscode.commands.registerCommand("intentLoop.setIntent", () => setIntent(controller)),
+    vscode.commands.registerCommand("intentLoop.selectPlan", () => selectPlan(controller)),
+    vscode.commands.registerCommand("intentLoop.openPlan", () => openPlan(controller)),
     vscode.commands.registerCommand("intentLoop.inspectFinding", (argument?: Finding) =>
       withFinding(argument, (finding) => inspectFinding(controller, finding)),
     ),
@@ -138,16 +141,53 @@ export function deactivate(): void {
   // Disposables registered with the extension context are released by VS Code.
 }
 
-async function setIntent(controller: ObservationController): Promise<void> {
+async function selectPlan(controller: ObservationController): Promise<void> {
   const snapshot = controller.getSnapshot();
-  const current = snapshot.kind === "ready" ? snapshot.state.workingIntent : undefined;
-  const intent = await vscode.window.showInputBox({
-    title: "Intent Loop: Working Intent",
-    prompt: "Describe the outcome the agent should remain aligned with.",
-    value: current,
-    placeHolder: "Add controller steering without changing keyboard behavior",
+  if (snapshot.kind !== "ready") return;
+  const browseLabel = "$(folder-opened) Choose another Markdown file…";
+  const selected = await vscode.window.showQuickPick([
+    ...snapshot.state.planCandidates.map((plan) => ({
+      label: plan.title,
+      description: plan.path,
+      detail: plan.excerpt,
+      planPath: plan.path,
+    })),
+    { label: browseLabel, planPath: undefined },
+  ], {
+    title: "Choose the active repository plan",
+    placeHolder: "Intent Loop follows this plan instead of maintaining a separate intent",
   });
-  if (intent !== undefined) await controller.setWorkingIntent(intent);
+  if (!selected) return;
+  let planPath = selected.planPath;
+  if (!planPath) {
+    const picked = await vscode.window.showOpenDialog({
+      title: "Choose a Markdown plan inside this repository",
+      defaultUri: vscode.Uri.file(snapshot.state.repositoryRoot),
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+      filters: { Markdown: ["md"] },
+    });
+    if (!picked?.[0]) return;
+    const relative = path.relative(snapshot.state.repositoryRoot, picked[0].fsPath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      void vscode.window.showWarningMessage("Choose a plan inside the observed repository.");
+      return;
+    }
+    planPath = relative;
+  }
+  await controller.selectPlan(planPath);
+}
+
+async function openPlan(controller: ObservationController): Promise<void> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready") return;
+  if (!snapshot.state.activePlan) {
+    await selectPlan(controller);
+    return;
+  }
+  const uri = vscode.Uri.file(path.join(snapshot.state.repositoryRoot, snapshot.state.activePlan.path));
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
 }
 
 async function inspectFinding(controller: ObservationController, finding: Finding): Promise<void> {
@@ -255,6 +295,14 @@ async function openConfiguration(controller: ObservationController): Promise<voi
       configPath,
       [
         "# Intent Loop runs only commands you explicitly trust in VS Code.",
+        "plans:",
+        "  include:",
+        "    - PLAN.md",
+        "    - plans/**/*.md",
+        "    - docs/**/*plan*.md",
+        "    - .claude/plans/*.md",
+        "# active: plans/current.md  # Optional shared default; the UI can select locally.",
+        "",
         "verification:",
         "  - name: tests",
         "    category: tests",
@@ -355,14 +403,9 @@ async function completeLoop(controller: ObservationController): Promise<void> {
   if (choice !== action) return;
 
   await controller.reset();
-  await controller.setWorkingIntent(undefined);
-  const nextIntent = await vscode.window.showInputBox({
-    title: "Intent Loop: Start the next loop",
-    prompt: "What outcome should your coding agent work toward next? Leave blank to decide later.",
-    placeHolder: "Add coverage for the verification workflow",
-  });
-  if (nextIntent !== undefined) await controller.setWorkingIntent(nextIntent);
-  void vscode.window.showInformationMessage("Previous loop completed. The current HEAD is now your clean baseline.");
+  void vscode.window.showInformationMessage(
+    "Previous loop completed. The current HEAD is now the baseline; Intent Loop will continue following the active plan document.",
+  );
 }
 
 async function installAdapter(adapters: AdapterInstaller, agent: SupportedAgent): Promise<void> {

@@ -5,7 +5,8 @@ import {
   ObservationState,
 } from "../domain/observation-state";
 
-const OBSERVATION_STATE_KEY = "intentLoop.observationState.v2";
+const OBSERVATION_STATE_KEY = "intentLoop.observationState.v3";
+const VERSION_TWO_STATE_KEY = "intentLoop.observationState.v2";
 const LEGACY_STATE_KEY = "intentLoop.observationState.v1";
 
 type LegacyObservationState = {
@@ -18,6 +19,11 @@ type LegacyObservationState = {
   changedPaths: string[];
 };
 
+type VersionTwoObservationState = Omit<ObservationState, "version" | "planCandidates"> & {
+  version: 2;
+  workingIntent?: string;
+};
+
 export class WorkspaceStore {
   public constructor(private readonly state: vscode.Memento) {}
 
@@ -27,11 +33,18 @@ export class WorkspaceStore {
       return current;
     }
 
+    const versionTwo = this.state.get<VersionTwoObservationState>(VERSION_TWO_STATE_KEY);
+    if (versionTwo?.version === 2) {
+      const { workingIntent: _workingIntent, ...rest } = versionTwo;
+      return { ...rest, version: OBSERVATION_STATE_VERSION, planCandidates: [] };
+    }
+
     const legacy = this.state.get<LegacyObservationState>(LEGACY_STATE_KEY);
     if (!legacy) return undefined;
     return {
       ...legacy,
       version: OBSERVATION_STATE_VERSION,
+      planCandidates: [],
       changedFiles: legacy.changedPaths.map((path) => ({
         path,
         status: "modified" as const,
@@ -46,12 +59,16 @@ export class WorkspaceStore {
 
   public async saveObservation(observation: ObservationState): Promise<void> {
     await this.state.update(OBSERVATION_STATE_KEY, observation);
-    await this.state.update(LEGACY_STATE_KEY, undefined);
+    await Promise.all([
+      this.state.update(VERSION_TWO_STATE_KEY, undefined),
+      this.state.update(LEGACY_STATE_KEY, undefined),
+    ]);
   }
 
   public async deleteObservation(): Promise<void> {
     await Promise.all([
       this.state.update(OBSERVATION_STATE_KEY, undefined),
+      this.state.update(VERSION_TWO_STATE_KEY, undefined),
       this.state.update(LEGACY_STATE_KEY, undefined),
     ]);
   }

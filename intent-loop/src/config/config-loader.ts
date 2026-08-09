@@ -24,6 +24,10 @@ type RawConfiguration = {
     cannot_import?: unknown;
   }>;
   diff_expansion_threshold?: unknown;
+  plans?: {
+    include?: unknown;
+    active?: unknown;
+  };
 };
 
 export class ConfigLoader {
@@ -44,6 +48,7 @@ export class ConfigLoader {
         merged.diff_expansion_threshold,
         DEFAULT_CONFIGURATION.diffExpansionThreshold,
       ),
+      plans: this.parsePlans(merged.plans),
     };
   }
 
@@ -86,6 +91,18 @@ export class ConfigLoader {
       from: this.nonEmptyString(item.from, `boundaries[${index}].from`),
       cannotImport: this.stringArray(item.cannot_import, `boundaries[${index}].cannot_import`),
     }));
+  }
+
+  private parsePlans(raw: RawConfiguration["plans"]): IntentLoopConfiguration["plans"] {
+    if (raw === undefined) return DEFAULT_CONFIGURATION.plans;
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error("plans must be an object.");
+    }
+    const include = raw.include === undefined
+      ? DEFAULT_CONFIGURATION.plans.include
+      : this.stringArray(raw.include, "plans.include");
+    const active = raw.active === undefined ? undefined : this.nonEmptyString(raw.active, "plans.active");
+    return { include, ...(active ? { active } : {}) };
   }
 
   private nonEmptyString(value: unknown, field: string): string {

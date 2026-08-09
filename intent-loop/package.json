@@ -2,7 +2,7 @@
   "name": "intent-loop",
   "displayName": "Intent Loop",
   "description": "A local control center for AI-assisted coding.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "publisher": "local",
   "license": "UNLICENSED",
@@ -44,10 +44,16 @@
         "icon": "$(refresh)"
       },
       {
-        "command": "intentLoop.setIntent",
-        "title": "Set Working Intent",
+        "command": "intentLoop.selectPlan",
+        "title": "Choose Active Plan Document",
         "category": "Intent Loop",
-        "icon": "$(target)"
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "intentLoop.openPlan",
+        "title": "Open Active Plan Document",
+        "category": "Intent Loop",
+        "icon": "$(go-to-file)"
       },
       {
         "command": "intentLoop.runVerification",
@@ -171,7 +177,7 @@
           "group": "navigation"
         },
         {
-          "command": "intentLoop.setIntent",
+          "command": "intentLoop.openPlan",
           "when": "view == intentLoop.overview",
           "group": "navigation@2"
         },
@@ -216,10 +222,10 @@
     "watch": "concurrently --kill-others \"tsc -w --noEmit -p ./\" \"esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --sourcemap --outfile=dist/extension.js --watch\"",
     "check": "tsc --noEmit -p ./",
     "test": "npm run compile && node --test test/*.test.cjs",
-    "coverage": "npm run compile && c8 --all --check-coverage --lines 80 --functions 75 --branches 60 --statements 80 --include='dist/adapters/adapter-installer.js' --include='dist/analyzers/**/*.js' --include='dist/collectors/git-collector.js' --include='dist/config/**/*.js' --include='dist/domain/quality-gates.js' --include='dist/prompts/**/*.js' --include='dist/reports/**/*.js' --include='dist/verification/**/*.js' --reporter=text node --test test/*.test.cjs",
+    "coverage": "npm run compile && c8 --all --check-coverage --lines 80 --functions 75 --branches 60 --statements 80 --include='dist/adapters/adapter-installer.js' --include='dist/analyzers/**/*.js' --include='dist/collectors/git-collector.js' --include='dist/collectors/plan-collector.js' --include='dist/config/**/*.js' --include='dist/domain/plans.js' --include='dist/domain/quality-gates.js' --include='dist/prompts/**/*.js' --include='dist/reports/**/*.js' --include='dist/verification/**/*.js' --reporter=text node --test test/*.test.cjs",
     "security": "npm audit --audit-level=high",
     "verify": "npm run check && npm run coverage",
-    "package:vsix": "npm run verify && vsce package --out intent-loop-0.2.0.vsix --allow-missing-repository --skip-license --no-dependencies --no-rewrite-relative-links"
+    "package:vsix": "npm run verify && vsce package --out intent-loop-0.3.0.vsix --allow-missing-repository --skip-license --no-dependencies --no-rewrite-relative-links"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

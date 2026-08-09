@@ -1,3 +1,10 @@
+plans:
+  include:
+    - intent-loop/PLAN.md
+    - intent-loop/plans/**/*.md
+    - intent-loop/docs/**/*plan*.md
+  active: intent-loop/PLAN.md
+
 verification:
   - name: typecheck
     category: quality

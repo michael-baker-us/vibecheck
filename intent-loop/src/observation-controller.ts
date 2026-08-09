@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 
 import { AnalysisEngine } from "./analyzers/analysis-engine";
 import { GitCollector } from "./collectors/git-collector";
+import { PlanCollector } from "./collectors/plan-collector";
 import { WorkspaceWatcher } from "./collectors/workspace-watcher";
 import { ConfigLoader } from "./config/config-loader";
 import { AgentEvent } from "./domain/agent-events";
@@ -35,6 +36,7 @@ export class ObservationController implements vscode.Disposable {
     private readonly workspaceFolder: vscode.WorkspaceFolder,
     private readonly store: WorkspaceStore,
     private readonly git: GitCollector,
+    private readonly plans: PlanCollector,
     private readonly configLoader: ConfigLoader,
     private readonly analyzer: AnalysisEngine,
     private readonly verificationService: VerificationService,
@@ -98,7 +100,9 @@ export class ObservationController implements vscode.Disposable {
         startedAt: now,
         lastUpdatedAt: now,
         paused: false,
-        workingIntent: previous?.workingIntent,
+        selectedPlanPath: previous?.selectedPlanPath,
+        activePlan: previous?.activePlan,
+        planCandidates: previous?.planCandidates ?? [],
         changedFiles: [],
         findings: [],
         verification: [],
@@ -147,8 +151,9 @@ export class ObservationController implements vscode.Disposable {
     this.output.appendLine("Local observation data deleted.");
   }
 
-  public async setWorkingIntent(intent: string | undefined): Promise<void> {
-    await this.mutateState((state) => ({ ...state, workingIntent: intent?.trim() || undefined }));
+  public async selectPlan(relativePath: string): Promise<void> {
+    await this.mutateState((state) => ({ ...state, selectedPlanPath: relativePath }));
+    await this.refresh();
   }
 
   public async ingestAgentEvent(event: AgentEvent): Promise<void> {
@@ -253,6 +258,16 @@ export class ObservationController implements vscode.Disposable {
         this.snapshot.state.repositoryRoot,
         this.snapshot.state.baselineCommit,
       );
+      const planCandidates = await this.plans.collect(
+        this.snapshot.state.repositoryRoot,
+        this.configuration.plans,
+        this.snapshot.state.selectedPlanPath,
+      );
+      const activePlan = this.plans.choose(
+        planCandidates,
+        this.configuration.plans,
+        this.snapshot.state.selectedPlanPath,
+      );
       const aligned = this.verificationService.alignDefinitions(
         this.configuration.verification,
         this.snapshot.state.verification,
@@ -269,6 +284,8 @@ export class ObservationController implements vscode.Disposable {
       await this.updateState({
         ...this.snapshot.state,
         changedFiles,
+        planCandidates,
+        activePlan,
         findings,
         verification,
         lastUpdatedAt: new Date().toISOString(),

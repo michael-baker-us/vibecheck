@@ -1,4 +1,5 @@
 import { ObservationState } from "../domain/observation-state";
+import { currentPlanTask } from "../domain/plans";
 
 export function buildFollowUpPrompt(state: ObservationState, findingIds?: string[]): string {
   const selected = state.findings.filter(
@@ -10,8 +11,12 @@ export function buildFollowUpPrompt(state: ObservationState, findingIds?: string
   );
 
   const lines: string[] = [];
-  if (state.workingIntent) {
-    lines.push(`Continue working toward this intent: ${state.workingIntent}`, "");
+  if (state.activePlan) {
+    const current = currentPlanTask(state.activePlan);
+    lines.push(`Stay aligned with the repository plan at ${state.activePlan.path}: ${state.activePlan.title}.`);
+    if (current) lines.push(`Current incomplete plan step: ${current.text}`);
+    if (state.activePlan.excerpt) lines.push(`Plan context: ${state.activePlan.excerpt}`);
+    lines.push("");
   }
   if (selected.length > 0) {
     lines.push("Review these observed findings:");

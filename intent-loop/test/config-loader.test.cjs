@@ -12,7 +12,7 @@ test("loads verification and boundary configuration from local YAML", async (con
   mkdirSync(join(root, ".intent-loop"));
   writeFileSync(
     join(root, ".intent-loop", "config.yaml"),
-    "verification:\n  - name: tests\n    command: npm test\n    invalidated_by: [src/**, tests/**]\ndiff_expansion_threshold: 8\n",
+    "plans:\n  include: [PLAN.md, plans/*.md]\n  active: plans/current.md\nverification:\n  - name: tests\n    command: npm test\n    invalidated_by: [src/**, tests/**]\ndiff_expansion_threshold: 8\n",
   );
   writeFileSync(
     join(root, ".intent-loop", "rules.yaml"),
@@ -22,5 +22,6 @@ test("loads verification and boundary configuration from local YAML", async (con
     verification: [{ name: "tests", command: "npm test", invalidatedBy: ["src/**", "tests/**"], required: true }],
     boundaries: [{ name: "isolation", from: "src/input/**", cannotImport: ["src/game/**"] }],
     diffExpansionThreshold: 8,
+    plans: { include: ["PLAN.md", "plans/*.md"], active: "plans/current.md" },
   });
 });

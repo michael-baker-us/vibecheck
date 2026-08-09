@@ -33,7 +33,7 @@ The pre-launch task runs TypeScript in watch mode. Extension runtime output is a
 
 ```bash
 npm run package:vsix
-code --install-extension intent-loop-0.2.0.vsix --force
+code --install-extension intent-loop-0.3.0.vsix --force
 ```
 
 Reload the target VS Code window after installing a new build.
@@ -45,12 +45,14 @@ collectors ─┐
 config ─────┼─> observation controller ─> persisted workspace state
 analyzers ──┤              │                         │
 verification┘              ├─> control-center webview / status / diagnostics
+plan documents ────────────┤
                            ├─> prompt and report builders
 local agent events ────────┘
 ```
 
 - `domain/` contains persisted and analysis-facing types.
 - `collectors/` reads Git and workspace facts.
+- `collectors/plan-collector.ts` discovers and parses repository Markdown plans without editing them.
 - `analyzers/` contains pure deterministic risk logic.
 - `verification/` runs trusted commands and hashes relevant inputs.
 - `adapters/` installs and ingests optional local agent hooks.

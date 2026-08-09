@@ -17,7 +17,7 @@ monitor the agent.
 - Runs only explicitly configured and individually trusted local verification commands.
 - Presents tests, coverage, security, and other checks as visible quality gates.
 - Marks passing verification stale when its relevant input files change.
-- Keeps an optional one-line working intent beside the current changes.
+- Discovers and follows existing repository Markdown plans instead of maintaining duplicate intent.
 - Maintains an attention queue with fact, configured-rule, and heuristic provenance.
 - Generates concrete follow-up prompts for the existing agent interface.
 - Exports a local Markdown review.
@@ -42,7 +42,7 @@ rotated at 5 MB with one previous segment.
 npm install
 npm run verify
 npm run package:vsix
-code --install-extension intent-loop-0.2.0.vsix --force
+code --install-extension intent-loop-0.3.0.vsix --force
 ```
 
 Reload VS Code and open the Intent Loop icon in the Activity Bar.
@@ -50,14 +50,14 @@ Reload VS Code and open the Intent Loop icon in the Activity Bar.
 ## Control-center workflow
 
 1. Open a Git-backed workspace.
-2. Set a short working intent at the top of the control center.
+2. Confirm the discovered active plan or choose another repository Markdown plan.
 3. Use Codex, Claude, or manual editing normally.
 4. Use the visible **Run all checks** action before accepting the work.
 5. Open **Needs attention** when the status bar changes.
 6. Inspect, accept, or dismiss findings directly in the sidebar.
 7. Copy a suggested follow-up prompt or export a review.
-8. Commit the finished work, then select **Finish this loop** to advance the baseline and enter the
-   next intent.
+8. Commit the finished work, then select **Finish this loop** to advance the baseline while
+   continuing to follow the repository plan.
 
 The readiness badge is deliberately conservative. Required checks must pass and high-risk findings
 must be resolved. The sidebar also calls out missing test, coverage, or security categories. Intent
@@ -68,6 +68,14 @@ Loop never commits code or silently overrides a warning.
 Run **Intent Loop: Open Local Configuration** or create `.intent-loop/config.yaml`:
 
 ```yaml
+plans:
+  include:
+    - PLAN.md
+    - plans/**/*.md
+    - docs/**/*plan*.md
+    - .claude/plans/*.md
+  # active: plans/current.md  # Optional shared default
+
 verification:
   - name: tests
     category: tests
@@ -106,6 +114,12 @@ verification:
 
 diff_expansion_threshold: 15
 ```
+
+Intent Loop reads ordinary Markdown rather than introducing its own plan format. It extracts the
+first heading, objective/goal/overview prose, and common task markers such as `[ ]`, `[x]`, and
+`[~]`. The newest matching plan is selected automatically unless the repository config supplies an
+`active` default or you choose a plan locally. Plan files must remain inside the observed repository;
+the extension does not scan unrelated plans from home-directory agent storage.
 
 Supported categories are `tests`, `coverage`, `security`, `quality`, `build`, and `other`. Commands
 should enforce their own meaningful policy—for example, a coverage command should fail below the
@@ -171,6 +185,8 @@ behavior.
 - Architecture enforcement currently resolves relative JavaScript and TypeScript imports only.
 - Risk detection intentionally favors a small, explainable rule set over broad AI classification.
 - Agent adapters report lifecycle awareness but do not manipulate another extension's chat UI.
+- Plan progress is available when the Markdown contains checkbox-style tasks; narrative-only plans
+  remain fully usable but do not receive a synthetic completion percentage.
 
 See [DEVELOPMENT.md](./DEVELOPMENT.md) for development and testing instructions and [PLAN.md](./PLAN.md)
 for the product roadmap.

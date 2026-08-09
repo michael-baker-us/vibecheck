@@ -1,8 +1,9 @@
 import { AgentSummary } from "./agent-events";
 import { Finding } from "./findings";
+import { PlanDocument } from "./plans";
 import { VerificationState } from "./verification";
 
-export const OBSERVATION_STATE_VERSION = 2 as const;
+export const OBSERVATION_STATE_VERSION = 3 as const;
 
 export type FileChangeStatus = "added" | "modified" | "deleted" | "renamed";
 
@@ -23,7 +24,9 @@ export type ObservationState = {
   startedAt: string;
   lastUpdatedAt: string;
   paused: boolean;
-  workingIntent?: string;
+  selectedPlanPath?: string;
+  activePlan?: PlanDocument;
+  planCandidates: PlanDocument[];
   changedFiles: ChangedFile[];
   findings: Finding[];
   verification: VerificationState[];

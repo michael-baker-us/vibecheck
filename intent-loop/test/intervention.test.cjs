@@ -5,14 +5,21 @@ const { buildFollowUpPrompt } = require("../dist/prompts/follow-up-builder");
 const { buildMarkdownReport } = require("../dist/reports/markdown-report");
 
 const state = {
-  version: 2,
+  version: 3,
   workspaceRoot: "/tmp/repo",
   repositoryRoot: "/tmp/repo",
   baselineCommit: "abc123",
   startedAt: "2026-01-01T00:00:00.000Z",
   lastUpdatedAt: "2026-01-01T00:01:00.000Z",
   paused: false,
-  workingIntent: "Keep keyboard controls working",
+  planCandidates: [],
+  activePlan: {
+    path: "PLAN.md",
+    title: "Keyboard controls",
+    modifiedAt: "2026-01-01T00:00:00.000Z",
+    excerpt: "Keep keyboard controls working",
+    tasks: [{ text: "Preserve arrow-key behavior", status: "in-progress", line: 8 }],
+  },
   changedFiles: [{ path: "src/input.ts", status: "modified", binary: false }],
   findings: [
     {
@@ -44,6 +51,7 @@ test("builds a concrete follow-up prompt and local review", () => {
 
   const report = buildMarkdownReport(state);
   assert.match(report, /# Intent Loop Review/);
+  assert.match(report, /PLAN\.md/);
   assert.match(report, /HIGH: Tests are stale/);
   assert.match(report, /\| tests \| stale \|/);
 });

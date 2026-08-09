@@ -1,4 +1,5 @@
 import { ObservationState } from "../domain/observation-state";
+import { currentPlanTask, planProgress } from "../domain/plans";
 
 export function buildMarkdownReport(state: ObservationState): string {
   const lines = [
@@ -9,7 +10,13 @@ export function buildMarkdownReport(state: ObservationState): string {
     `- Updated: ${state.lastUpdatedAt}`,
     `- Changed files: ${state.changedFiles.length}`,
   ];
-  if (state.workingIntent) lines.push(`- Working intent: ${state.workingIntent}`);
+  if (state.activePlan) {
+    lines.push(`- Active plan: \`${state.activePlan.path}\` — ${state.activePlan.title}`);
+    const progress = planProgress(state.activePlan);
+    if (progress) lines.push(`- Plan progress: ${progress}`);
+    const current = currentPlanTask(state.activePlan);
+    if (current) lines.push(`- Current plan step: ${current.text}`);
+  }
 
   lines.push("", "## Attention", "");
   const open = state.findings.filter((finding) => finding.status === "open");
