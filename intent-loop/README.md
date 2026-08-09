@@ -86,15 +86,15 @@ The quality-gate overview shows the latest test totals, line coverage, and depen
 count at a glance. Each gate retains its structured result, run time, duration, and freshness state.
 VibeCheck never stages or commits code, and it deliberately leaves file and diff UX to VS Code.
 
-The Control Center is organized around five focused views:
+The Control Center is organized around four workflow-focused views:
 
-- **Overview:** release readiness, the next recommended action, current metrics, and evidence export.
+- **Status:** change confidence, the next recommended action, current metrics, unresolved findings,
+  reviewed findings, and evidence export.
 - **Review:** live Codex or Claude activity, elapsed time, structured findings, evidence links,
-  freshness, a provider-neutral Markdown preview, and integrated account-limit snapshots from Codex
-  `/status` and Claude `/usage`.
+  freshness, and a provider-neutral Markdown preview.
 - **Quality:** detailed quality-gate results, structured metrics, timestamps, output, and configuration.
-- **Attention:** unresolved and reviewed findings with explicit review decisions.
-- **Workspace:** the active plan, repository agent capabilities, adapters, and local monitoring data.
+- **Tools:** change summaries, Codex and Claude account-limit snapshots, the active plan, repository
+  agent capabilities, adapters, and local monitoring controls.
 
 The selected view and agent-workspace tab persist across refreshes, keeping the interface stable
 while checks run or repository state changes.
@@ -119,6 +119,22 @@ instructions are not duplicated. Personal Claude files are labeled local-only an
 gitignored. VibeCheck does not scan `~/.codex`, `~/.claude`, managed policy, installed plugin caches,
 or runtime agent-team/task state; those are personal, administrative, installed, or ephemeral
 surfaces rather than repository intent.
+
+The optional **Continuously align safe, portable files** workspace setting provides a Claude ↔
+Codex compatibility layer. Enabling it or running **VibeCheck: Align Claude and Codex Workspace**:
+
+- treats root `AGENTS.md` as the shared instruction source and ensures `CLAUDE.md` imports it,
+  without replacing Claude-specific guidance;
+- copies one-sided open-standard skills between `.agents/skills` and `.claude/skills`;
+- leaves matching skills alone and flags divergent copies, with explicit **Use Codex version** and
+  **Use Claude version** actions that back up the replaced copy outside the repository;
+- treats the active VibeCheck Markdown plan as provider-neutral shared plan context; and
+- flags provider-specific agents, MCP, hooks, and settings when either side changes, rather than
+  attempting a lossy schema conversion.
+
+The Agent Workspace panel shows every compatibility surface, its drift state, and which provider
+has the newer copy. This makes provider switching quick while keeping deliberate provider-specific
+configuration intact.
 
 ## Configuration
 

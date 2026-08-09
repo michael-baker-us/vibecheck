@@ -155,6 +155,12 @@
         "category": "VibeCheck"
       },
       {
+        "command": "intentLoop.alignAgentInstructions",
+        "title": "Align Claude and Codex Workspace",
+        "category": "VibeCheck",
+        "icon": "$(sync)"
+      },
+      {
         "command": "intentLoop.installCodexAdapter",
         "title": "Install Local Codex Adapter",
         "category": "VibeCheck"
@@ -203,32 +209,37 @@
         {
           "command": "intentLoop.openPlan",
           "when": "view == intentLoop.overview",
-          "group": "navigation@2"
+          "group": "1_workflows@1"
         },
         {
           "command": "intentLoop.runAllVerification",
           "when": "view == intentLoop.overview",
-          "group": "navigation@3"
+          "group": "1_workflows@2"
         },
         {
           "command": "intentLoop.runCodeReview",
           "when": "view == intentLoop.overview",
-          "group": "navigation@4"
+          "group": "1_workflows@3"
         },
         {
           "command": "intentLoop.summarizeChanges",
           "when": "view == intentLoop.overview",
-          "group": "navigation@5"
+          "group": "1_workflows@4"
         },
         {
           "command": "intentLoop.copyPrompt",
           "when": "view == intentLoop.overview",
-          "group": "navigation@6"
+          "group": "2_evidence@1"
         },
         {
           "command": "intentLoop.openConfig",
           "when": "view == intentLoop.overview",
-          "group": "navigation@7"
+          "group": "3_configuration@1"
+        },
+        {
+          "command": "intentLoop.alignAgentInstructions",
+          "when": "view == intentLoop.overview",
+          "group": "3_configuration@2"
         }
       ]
     },
@@ -246,6 +257,12 @@
           "minimum": 100,
           "maximum": 10000,
           "description": "Delay before refreshing Git state after workspace file changes."
+        },
+        "intentLoop.alignAgentWorkspace": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "description": "Continuously align safe, portable Claude and Codex repository files. Shared instructions and one-sided open-standard skills sync automatically; incompatible provider-specific schemas are flagged for review."
         }
       }
     }
@@ -256,7 +273,7 @@
     "watch": "concurrently --kill-others \"tsc -w --noEmit -p ./\" \"esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --sourcemap --outfile=dist/extension.js --watch\"",
     "check": "tsc --noEmit -p ./",
     "test": "npm run compile && node --test test/*.test.cjs",
-    "coverage": "npm run compile && c8 --all --check-coverage --lines 80 --functions 75 --branches 60 --statements 80 --include='dist/adapters/adapter-installer.js' --include='dist/analyzers/**/*.js' --include='dist/collectors/agent-file-collector.js' --include='dist/collectors/git-collector.js' --include='dist/collectors/plan-collector.js' --include='dist/config/**/*.js' --include='dist/domain/plans.js' --include='dist/domain/quality-gates.js' --include='dist/prompts/**/*.js' --include='dist/reports/**/*.js' --include='dist/verification/**/*.js' --reporter=text node --test test/*.test.cjs",
+    "coverage": "npm run compile && c8 --all --check-coverage --lines 80 --functions 75 --branches 60 --statements 80 --include='dist/adapters/adapter-installer.js' --include='dist/agent-instructions/**/*.js' --include='dist/analyzers/**/*.js' --include='dist/collectors/agent-file-collector.js' --include='dist/collectors/git-collector.js' --include='dist/collectors/plan-collector.js' --include='dist/config/**/*.js' --include='dist/domain/plans.js' --include='dist/domain/quality-gates.js' --include='dist/prompts/**/*.js' --include='dist/reports/**/*.js' --include='dist/verification/**/*.js' --reporter=text node --test test/*.test.cjs",
     "security": "npm audit --json --audit-level=high",
     "verify": "npm run check && npm run coverage",
     "package:vsix": "npm run verify && mkdir -p packages && vsce package --out packages/vibecheck-0.6.9.vsix --allow-missing-repository --skip-license --no-dependencies --no-rewrite-relative-links"

@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 
 import { AdapterInstaller, SupportedAgent } from "./adapters/adapter-installer";
 import { LocalEventReader } from "./adapters/local-event-reader";
+import { AgentInstructionAlignmentService } from "./agent-instructions/alignment-service";
 import { AnalysisEngine } from "./analyzers/analysis-engine";
 import { AgentFileCollector } from "./collectors/agent-file-collector";
 import { GitCollector } from "./collectors/git-collector";
@@ -39,12 +40,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const git = new GitCollector();
   const usageService = new ProviderUsageService();
   const changeSummaryService = new ChangeSummaryService();
+  const alignmentService = new AgentInstructionAlignmentService();
   let changeSummarySession: ChangeSummarySession | undefined;
   let providerUsage = usageService.emptySnapshot();
+  let agentAlignment = alignmentService.emptySnapshot();
   const adapters = new AdapterInstaller(context.asAbsolutePath("resources/hook-bridge.cjs"));
   const statusBar = new IntentLoopStatusBar();
   const diagnostics = new FindingDiagnostics();
   let controller: ObservationController;
+  let refreshAgentAlignment: () => Promise<void> = async () => undefined;
   const controlCenter = new ControlCenterProvider(
     () => controller.getSnapshot(),
     () => controller.getConfiguration(),
@@ -52,6 +56,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => controller.getReviewTranscript(),
     () => changeSummarySession,
     () => providerUsage,
+    () => agentAlignment,
   );
   controller = new ObservationController(
     workspaceFolder,
@@ -68,9 +73,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       controlCenter.refresh();
       statusBar.render(snapshot);
       diagnostics.render(snapshot);
+      void refreshAgentAlignment();
     },
     output,
   );
+  refreshAgentAlignment = async () => {
+    const snapshot = controller.getSnapshot();
+    if (snapshot.kind !== "ready") return;
+    agentAlignment = await alignmentService.scan(snapshot.state.repositoryRoot, snapshot.state.activePlan?.path);
+    controlCenter.refresh();
+  };
   const eventReader = new LocalEventReader(
     (event) => void controller.ingestAgentEvent(event),
     output,
@@ -150,6 +162,46 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("intentLoop.manageAgentFile", (relativePath?: string) =>
       manageAgentFile(controller, relativePath),
     ),
+    vscode.commands.registerCommand("intentLoop.alignAgentInstructions", () =>
+      alignAgentWorkspace(controller, alignmentService, refreshAgentAlignment, true),
+    ),
+    vscode.commands.registerCommand("intentLoop.resolveAgentAlignment", async (selection?: string) => {
+      const match = /^skills:([^|]+)\|(codex|claude)$/.exec(selection ?? "");
+      if (!match) return;
+      const name = match[1];
+      const source = match[2] as "codex" | "claude";
+      const choice = await vscode.window.showWarningMessage(
+        `Use the ${source === "codex" ? "Codex" : "Claude"} copy of skill '${name}' for both providers? The replaced copy will be backed up outside the repository.`,
+        { modal: true },
+        "Align Skill",
+      );
+      if (choice !== "Align Skill") return;
+      try {
+        const snapshot = controller.getSnapshot();
+        if (snapshot.kind !== "ready") return;
+        const result = await alignmentService.alignSkill(
+          snapshot.state.repositoryRoot,
+          name,
+          source,
+          path.join(context.globalStorageUri.fsPath, "alignment-backups"),
+        );
+        await controller.refresh();
+        await refreshAgentAlignment();
+        void vscode.window.showInformationMessage(`Aligned '${name}' from ${source}. ${result.backupPath ? `Previous copy backed up to ${result.backupPath}.` : ""}`);
+      } catch (error) {
+        void vscode.window.showErrorMessage(`Could not align skill '${name}': ${String(error)}`);
+      }
+    }),
+    vscode.commands.registerCommand("intentLoop.setAgentAlignment", async (enabled?: boolean) => {
+      if (typeof enabled !== "boolean") return;
+      await vscode.workspace.getConfiguration("intentLoop", workspaceFolder.uri).update(
+        "alignAgentWorkspace",
+        enabled,
+        vscode.ConfigurationTarget.Workspace,
+      );
+      if (enabled) await alignAgentWorkspace(controller, alignmentService, refreshAgentAlignment, true);
+      controlCenter.refresh();
+    }),
     vscode.commands.registerCommand("intentLoop.installCodexAdapter", () =>
       installAdapter(adapters, "codex"),
     ),
@@ -165,6 +217,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   statusBar.render(controller.getSnapshot());
   await controller.initialize();
+  const instructionWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(workspaceFolder, "{AGENTS.md,CLAUDE.md,.mcp.json,.agents/**,.codex/**,.claude/**}"),
+  );
+  const alignWhenEnabled = async (): Promise<void> => {
+    if (vscode.workspace.getConfiguration("intentLoop", workspaceFolder.uri).get<boolean>("alignAgentWorkspace", false)) {
+      await alignAgentWorkspace(controller, alignmentService, refreshAgentAlignment, false);
+      return;
+    }
+    await refreshAgentAlignment();
+  };
+  context.subscriptions.push(
+    instructionWatcher,
+    instructionWatcher.onDidCreate(() => void alignWhenEnabled()),
+    instructionWatcher.onDidChange(() => void alignWhenEnabled()),
+    instructionWatcher.onDidDelete(() => void alignWhenEnabled()),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("intentLoop.alignAgentWorkspace", workspaceFolder.uri)) {
+        void alignWhenEnabled();
+        controlCenter.refresh();
+      }
+    }),
+  );
+  await refreshAgentAlignment();
+  await alignWhenEnabled();
   void vscode.commands.executeCommand("intentLoop.refreshProviderUsage");
   eventReader.start();
 }
@@ -253,6 +329,31 @@ async function manageAgentFile(
     await controller.refresh();
   }
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(absolutePath));
+}
+
+async function alignAgentWorkspace(
+  controller: ObservationController,
+  service: AgentInstructionAlignmentService,
+  refreshAlignment: () => Promise<void>,
+  notify: boolean,
+): Promise<void> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready") return;
+  try {
+    const result = await service.alignSafe(snapshot.state.repositoryRoot);
+    if (result.instructionsChanged || result.skillsCopiedToClaude || result.skillsCopiedToCodex) await controller.refresh();
+    await refreshAlignment();
+    if (!notify) return;
+    const changes = [
+      result.instructionsChanged ? "shared instructions" : "",
+      result.skillsCopiedToClaude ? `${result.skillsCopiedToClaude} skill${result.skillsCopiedToClaude === 1 ? "" : "s"} copied to Claude` : "",
+      result.skillsCopiedToCodex ? `${result.skillsCopiedToCodex} skill${result.skillsCopiedToCodex === 1 ? "" : "s"} copied to Codex` : "",
+    ].filter(Boolean);
+    const suffix = result.reviewRequired ? ` ${result.reviewRequired} provider-specific or conflicting item${result.reviewRequired === 1 ? "" : "s"} still need review.` : "";
+    void vscode.window.showInformationMessage(`${changes.length ? `Aligned ${changes.join(", ")}.` : "Safe portable files are already aligned."}${suffix}`);
+  } catch (error) {
+    void vscode.window.showErrorMessage(`Could not align Claude and Codex guidance: ${String(error)}`);
+  }
 }
 
 function agentFileTemplate(relativePath: string, hasAgentsFile: boolean): string {
