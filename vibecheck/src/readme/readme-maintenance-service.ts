@@ -152,7 +152,7 @@ export function claudeReadmeArguments(request: ReadmeMaintenanceRequest): string
     "--print", "--model", request.model, "--effort", request.effort,
     "--output-format", "stream-json", "--verbose",
     "--json-schema", JSON.stringify(README_SCHEMA),
-    "--permission-mode", "plan",
+    "--permission-mode", "dontAsk",
     "--allowed-tools", "Read,Grep,Glob,Bash(git status *),Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git ls-files *)",
     "--no-session-persistence", readmePrompt(request),
   ];
@@ -172,7 +172,8 @@ export function readmePrompt(request: ReadmeMaintenanceRequest): string {
       ];
   return [
     ...scope,
-    "Return the complete proposed root README.md as Markdown and a short summary of the documentation changes.",
+    "Return the complete proposed root README.md as Markdown in the structured content field and a short summary of the documentation changes.",
+    "The content field must contain only the raw README document with a Markdown H1: do not wrap it in a code fence, add a proposed-README heading, return a plan, mention a plan file, or include commentary outside the document.",
     "Make the README useful to developers and users: explain purpose, capabilities, setup, common workflows, configuration, architecture, testing, and constraints when repository evidence supports them.",
     "Do not invent behavior, commands, prerequisites, links, compatibility, or roadmap claims. Do not modify files or include a VibeCheck watermark; the extension adds the canonical marker after validation.",
   ].join(" ");
@@ -190,12 +191,27 @@ export function parseReadmeOutput(raw: string): ReadmeMaintenanceResult {
     throw new Error("The README provider returned an invalid structured response.");
   }
   const summary = value.summary.trim();
-  const content = value.content.trim();
+  const content = normalizeReadmeContent(value.content);
   if (!summary) throw new Error("The README provider returned an empty summary.");
   if (!content) throw new Error("The README provider returned empty README content.");
+  if (!/^#\s+\S/m.test(content)) {
+    throw new Error("The README provider did not return a complete Markdown document with an H1 heading.");
+  }
   if (Buffer.byteLength(content, "utf8") > MAX_README_BYTES) throw new Error("The proposed README exceeds the 2 MB limit.");
   if (content.includes("\0")) throw new Error("The proposed README contains invalid null bytes.");
   return { summary, content };
+}
+
+function normalizeReadmeContent(value: string): string {
+  const content = value.trim();
+  const bareFence = content.match(/^```(?:markdown|md)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i);
+  if (bareFence) return bareFence[1].trim();
+
+  const proposedFence = content.match(/^([^\n]{1,240})\r?\n+```(?:markdown|md)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i);
+  if (proposedFence && /proposed\s+(?:root\s+)?(?:`?README(?:\.md)?`?|readme)/i.test(proposedFence[1])) {
+    return proposedFence[2].trim();
+  }
+  return content;
 }
 
 async function runProvider(

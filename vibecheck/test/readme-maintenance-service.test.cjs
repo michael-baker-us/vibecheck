@@ -63,7 +63,8 @@ test("passes the selected model, effort, schema, and read-only permissions to pr
   assert.deepEqual(claude.slice(0, 7), [
     "--print", "--model", "claude-sonnet-5", "--effort", "medium", "--output-format", "stream-json",
   ]);
-  assert.ok(claude.includes("plan"));
+  assert.ok(claude.includes("dontAsk"));
+  assert.ok(!claude.includes("plan"));
   assert.doesNotMatch(claude.join(" "), /Write|Edit/);
 });
 
@@ -79,6 +80,19 @@ test("parses README provider output and enforces required content", () => {
   assert.throws(() => parseReadmeOutput("not json"), /invalid JSON/);
   assert.throws(() => parseReadmeOutput(JSON.stringify({ summary: "", content: "# Project" })), /empty summary/);
   assert.throws(() => parseReadmeOutput(JSON.stringify({ summary: "Summary", content: "" })), /empty README/);
+});
+
+test("unwraps Codex presentation fences and rejects Claude plan-file handoffs", () => {
+  const codex = parseReadmeOutput(JSON.stringify({
+    summary: "Created project documentation.",
+    content: "**## Proposed `README.md`**\n\n```markdown\n# Companion\n\nProject documentation.\n```",
+  }));
+  assert.equal(codex.content, "# Companion\n\nProject documentation.");
+
+  assert.throws(() => parseReadmeOutput(JSON.stringify({
+    summary: "README planned.",
+    content: "Plan file at /Users/example/.claude/plans/readme.md contains the full proposed root README.md. No files were modified.",
+  })), /complete Markdown document with an H1/);
 });
 
 test("normalizes README provider progress", () => {
