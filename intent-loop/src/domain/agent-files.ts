@@ -1,5 +1,15 @@
 export type AgentFileOwner = "codex" | "claude" | "intent-loop";
-export type AgentFileKind = "instructions" | "settings" | "rules";
+export type AgentFileKind =
+  | "instructions"
+  | "skills"
+  | "prompts"
+  | "agents"
+  | "settings"
+  | "rules"
+  | "hooks"
+  | "mcp"
+  | "plugins"
+  | "output-styles";
 
 export type AgentWorkspaceFile = {
   path: string;

@@ -16,12 +16,16 @@ monitor the agent.
   broad diffs, and configured TypeScript/JavaScript architecture boundaries.
 - Runs only explicitly configured and individually trusted local verification commands.
 - Presents tests, coverage, security, and other checks as visible quality gates.
+- Extracts test pass/fail/skip totals, coverage percentages and movement, and new/fixed dependency
+  vulnerabilities from supported command output.
 - Marks passing verification stale when its relevant input files change.
 - Discovers and follows existing repository Markdown plans instead of maintaining duplicate intent.
 - Maintains an attention queue with fact, configured-rule, and heuristic provenance.
 - Generates concrete follow-up prompts for the existing agent interface.
 - Creates local Markdown evidence reports without writing into the source tree unless you save them.
-- Opens or creates documented Codex, Claude, and VibeCheck repository files from one workspace.
+- Inventories documented repository-scoped Codex and Claude capabilities—guidance, skills,
+  reusable prompts, subagents, settings, rules, hooks, MCP, plugins, and output styles—and opens or
+  creates safe starter files from one workspace.
 - Optionally ingests normalized local Codex and Claude hook events.
 
 ## Local-only boundary
@@ -43,7 +47,7 @@ rotated at 5 MB with one previous segment.
 npm install
 npm run verify
 npm run package:vsix
-code --install-extension vibecheck-0.5.0.vsix --force
+code --install-extension vibecheck-0.5.2.vsix --force
 ```
 
 Reload VS Code and open the VibeCheck icon in the Activity Bar.
@@ -59,25 +63,35 @@ the rename does not discard workspace state, trusted commands, or existing confi
 3. Run individual quality gates or **Run all checks** whenever you need current evidence.
 4. Inspect, accept, or dismiss high-signal findings in **Needs attention**.
 5. Create an evidence report or copy a concrete agent follow-up.
-6. Open or create repository agent instructions, settings, rules, and plans under **Agent workspace**.
+6. Review repository agent capabilities and open or create their files under **Agent workspace**.
 7. Commit normally. VibeCheck detects the new `HEAD` and begins monitoring uncommitted work against
    that commit automatically.
 
 The readiness badge is deliberately conservative. Required checks must pass and high-risk findings
 must be resolved. The sidebar also calls out missing test, coverage, or security categories.
+The quality-gate overview shows the latest test totals, line coverage, and dependency-vulnerability
+count at a glance. Each gate retains its structured result, run time, duration, and freshness state.
 VibeCheck never stages or commits code, and it deliberately leaves file and diff UX to VS Code.
 
-## Agent workspace files
+## Agent workspace capabilities
 
-The control center manages the documented repository surfaces rather than private transcripts:
+The control center monitors documented repository surfaces rather than private transcripts or
+machine-wide configuration:
 
-- Codex: `AGENTS.md`, nested `AGENTS.override.md`, and `.codex/config.toml`.
-- Claude: `CLAUDE.md`, `CLAUDE.local.md`, `.claude/settings*.json`, and `.claude/rules/**/*.md`.
+- Codex: layered `AGENTS.md` files, `.agents/skills/**/SKILL.md`, `.codex/config.toml`,
+  `.codex/hooks.json`, `.codex/rules/*.rules`, `.codex/agents/*.toml`, and Codex plugin manifests
+  and hooks. Codex custom prompts are deprecated and user-scoped, so new reusable repository
+  workflows are represented as skills.
+- Claude: layered `CLAUDE.md` files, `.claude/rules/**/*.md`, `.claude/skills/**/SKILL.md`, legacy
+  `.claude/commands/**/*.md`, `.claude/agents/*.md`, `.claude/settings*.json`, `.mcp.json`,
+  `.claude/output-styles/*.md`, and Claude plugin manifests and hooks.
 - VibeCheck: `.intent-loop/config.yaml`, `.intent-loop/rules.yaml`, and the active Markdown plan.
 
 When `AGENTS.md` already exists, a newly created `CLAUDE.md` imports it with `@AGENTS.md` so shared
 instructions are not duplicated. Personal Claude files are labeled local-only and should remain
-gitignored.
+gitignored. VibeCheck does not scan `~/.codex`, `~/.claude`, managed policy, installed plugin caches,
+or runtime agent-team/task state; those are personal, administrative, installed, or ephemeral
+surfaces rather than repository intent.
 
 ## Configuration
 
@@ -141,6 +155,13 @@ Supported categories are `tests`, `coverage`, `security`, `quality`, `build`, an
 should enforce their own meaningful policy—for example, a coverage command should fail below the
 repository's chosen threshold. Set `required: false` only when a check is genuinely advisory.
 
+VibeCheck currently extracts structured metrics from Node TAP or Jest test summaries, c8/Istanbul
+text or coverage-summary JSON, and npm-audit JSON or text. Use `npm audit --json` when possible:
+the JSON package identifiers let VibeCheck distinguish newly introduced vulnerabilities from fixed
+ones even when the total count is unchanged. Coverage movement and security changes are calculated
+against the previous run of the same gate. Commands with unsupported output still receive normal
+pass/fail, freshness, timing, raw-output, and readiness behavior.
+
 Repository commands are never executed merely because the file exists. The exact command and
 working directory are shown for approval, and trust is invalidated when the command changes.
 
@@ -190,6 +211,9 @@ the current evidence. If underlying evidence changes, a new fingerprint can crea
 - **Passed:** it exited successfully and relevant inputs still match their recorded hashes.
 - **Failed:** it exited unsuccessfully or was interrupted.
 - **Stale:** it previously passed, but a relevant file was added, removed, or changed.
+
+The Markdown evidence report uses the same structured summaries shown in the Control Center and
+includes the execution timestamp and duration for each quality gate.
 
 A passing check is evidence for a particular repository state, not proof of complete product
 behavior.

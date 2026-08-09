@@ -33,7 +33,7 @@ The pre-launch task runs TypeScript in watch mode. Extension runtime output is a
 
 ```bash
 npm run package:vsix
-code --install-extension vibecheck-0.5.0.vsix --force
+code --install-extension vibecheck-0.5.2.vsix --force
 ```
 
 Reload the target VS Code window after installing a new build.
@@ -52,7 +52,8 @@ local agent events ────────┘
 
 - `domain/` contains persisted and analysis-facing types.
 - `collectors/` reads Git and workspace facts.
-- `collectors/agent-file-collector.ts` inventories documented repository agent configuration files.
+- `collectors/agent-file-collector.ts` inventories documented repository agent capability entrypoints
+  using explicit starter files plus pattern-based discovery for nested and plugin-owned surfaces.
 - `collectors/plan-collector.ts` discovers and parses repository Markdown plans without editing them.
 - `analyzers/` contains pure deterministic risk logic.
 - `verification/` runs trusted commands and hashes relevant inputs.
@@ -79,4 +80,7 @@ During a real agent task, check:
 - Source Control remains the only changed-file and diff interface;
 - agent workspace files can be opened or deliberately created from the control center;
 - missing tests, coverage, or security gates are understandable without opening YAML;
+- test totals, coverage percentages, and npm-audit new/fixed counts agree with command output;
+- repeat coverage and security runs show movement relative to the immediately preceding run;
+- generated evidence reports agree with the Control Center quality-gate summaries;
 - editor responsiveness remains unaffected while idle.

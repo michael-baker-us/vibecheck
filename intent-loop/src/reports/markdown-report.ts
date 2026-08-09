@@ -1,5 +1,6 @@
 import { ObservationState } from "../domain/observation-state";
 import { currentPlanTask, planProgress } from "../domain/plans";
+import { VerificationState, VerificationSummary } from "../domain/verification";
 
 export function buildMarkdownReport(state: ObservationState): string {
   const lines = [
@@ -37,13 +38,20 @@ export function buildMarkdownReport(state: ObservationState): string {
     }
   }
 
-  lines.push("## Verification", "");
+  lines.push("## Quality gates", "");
   if (state.verification.length === 0) {
     lines.push("No verification commands configured.");
   } else {
-    lines.push("| Check | Status | Command |", "| --- | --- | --- |");
+    lines.push(
+      "| Check | Status | Result | Last run | Duration |",
+      "| --- | --- | --- | --- | ---: |",
+    );
     for (const item of state.verification) {
-      lines.push(`| ${item.name} | ${item.status} | \`${item.command.replaceAll("|", "\\|")}\` |`);
+      lines.push(`| ${escapeCell(item.name)} | ${item.status} | ${escapeCell(summaryText(item.summary))} | ${item.finishedAt ?? "—"} | ${durationText(item.durationMs)} |`);
+    }
+    lines.push("", "### Commands", "");
+    for (const item of state.verification) {
+      lines.push(`- **${item.name}:** \`${item.command.replaceAll("|", "\\|")}\``);
     }
   }
 
@@ -53,4 +61,49 @@ export function buildMarkdownReport(state: ObservationState): string {
   }
   lines.push("");
   return lines.join("\n");
+}
+
+function summaryText(summary: VerificationSummary | undefined): string {
+  if (!summary) return "No structured metrics";
+  if (summary.kind === "tests") {
+    return `${summary.passed}/${summary.total} passed, ${summary.failed} failed${summary.skipped ? `, ${summary.skipped} skipped` : ""}`;
+  }
+  if (summary.kind === "coverage") {
+    const detail = [
+      `lines ${percentage(summary.lines)}`,
+      summary.branches === undefined ? undefined : `branches ${percentage(summary.branches)}`,
+      summary.functions === undefined ? undefined : `functions ${percentage(summary.functions)}`,
+      summary.statements === undefined ? undefined : `statements ${percentage(summary.statements)}`,
+    ].filter(Boolean).join(", ");
+    return `${detail}${trendText(summary.change)}`;
+  }
+  const severity = [
+    summary.critical ? `${summary.critical} critical` : undefined,
+    summary.high ? `${summary.high} high` : undefined,
+    summary.moderate ? `${summary.moderate} moderate` : undefined,
+    summary.low ? `${summary.low} low` : undefined,
+  ].filter(Boolean).join(", ");
+  const changes = [
+    summary.newIssues ? `${summary.newIssues} new` : undefined,
+    summary.fixedIssues ? `${summary.fixedIssues} fixed` : undefined,
+  ].filter(Boolean).join(", ");
+  return `${summary.total} vulnerabilities${severity ? ` (${severity})` : ""}${changes ? `; ${changes}` : ""}`;
+}
+
+function trendText(change: number | undefined): string {
+  if (change === undefined || change === 0) return "";
+  return ` (${change > 0 ? "+" : ""}${change.toFixed(2)} pp)`;
+}
+
+function percentage(value: number): string {
+  return `${value.toFixed(2)}%`;
+}
+
+function durationText(durationMs: VerificationState["durationMs"]): string {
+  if (durationMs === undefined) return "—";
+  return durationMs < 1_000 ? `${durationMs} ms` : `${(durationMs / 1_000).toFixed(1)} s`;
+}
+
+function escapeCell(value: string): string {
+  return value.replaceAll("|", "\\|").replaceAll("\n", " ");
 }

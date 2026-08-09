@@ -38,7 +38,15 @@ const state = {
     },
   ],
   verification: [
-    { name: "tests", command: "npm test", invalidatedBy: ["src/**"], status: "stale" },
+    {
+      name: "tests",
+      command: "npm test",
+      invalidatedBy: ["src/**"],
+      status: "stale",
+      finishedAt: "2026-01-01T00:00:30.000Z",
+      durationMs: 1250,
+      summary: { kind: "tests", total: 12, passed: 11, failed: 1, skipped: 0 },
+    },
   ],
   trustedCommandHashes: [],
   agent: { connectedAgents: [] },
@@ -55,4 +63,6 @@ test("builds a concrete follow-up prompt and local review", () => {
   assert.match(report, /PLAN\.md/);
   assert.match(report, /HIGH: Tests are stale/);
   assert.match(report, /\| tests \| stale \|/);
+  assert.match(report, /11\/12 passed, 1 failed/);
+  assert.match(report, /1\.3 s/);
 });

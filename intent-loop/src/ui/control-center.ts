@@ -142,11 +142,19 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     .section-head { padding: 10px 12px; border-bottom: 1px solid var(--vscode-widget-border); }
     .section-head span { color: var(--vscode-descriptionForeground); font-size: 11px; }
     .content { padding: 10px 12px; display:grid; gap:8px; }
+    .metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+    .metric { padding:9px; border:1px solid var(--vscode-widget-border); border-radius:6px; background:var(--vscode-editor-background); min-width:0; }
+    .metric-label { color:var(--vscode-descriptionForeground); font-size:10px; font-weight:700; letter-spacing:.45px; text-transform:uppercase; }
+    .metric-value { margin-top:2px; font-size:16px; font-weight:650; overflow-wrap:anywhere; }
+    .metric-detail { color:var(--vscode-descriptionForeground); font-size:10px; margin-top:2px; }
     .tabs { display:flex; gap:2px; padding:0 12px; border-bottom:1px solid var(--vscode-widget-border); }
     .tab { flex:1; padding:8px 6px 7px; border:0; border-bottom:2px solid transparent; color:var(--vscode-descriptionForeground); background:transparent; }
     .tab:hover { color:var(--vscode-foreground); background:var(--vscode-list-hoverBackground); }
     .tab[aria-selected="true"] { color:var(--vscode-foreground); border-bottom-color:var(--vscode-focusBorder); }
     .tab-panel { padding-top:2px; }
+    .capability-group { display:grid; gap:7px; }
+    .capability-group + .capability-group { margin-top:5px; }
+    .capability-label { color:var(--vscode-descriptionForeground); font-size:10px; font-weight:700; letter-spacing:.55px; text-transform:uppercase; }
     .item { padding: 9px; border: 1px solid var(--vscode-widget-border); border-radius: 6px; }
     .item-title { font-weight: 600; overflow-wrap:anywhere; }
     .meta { color: var(--vscode-descriptionForeground); font-size: 11px; margin-top: 3px; }
@@ -163,7 +171,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     details .content { padding-top:0; }
     .danger { color:var(--vscode-errorForeground)!important; }
     .footer { text-align:center; font-size:11px; color:var(--vscode-descriptionForeground); padding:4px; }
-    @media (max-width: 260px) { .actions { grid-template-columns:1fr; } }
+    @media (max-width: 320px) { .actions, .metrics { grid-template-columns:1fr; } }
   </style>
 </head>
 <body><main id="app" class="shell"><div class="empty">Loading local workspace state…</div></main>
@@ -174,7 +182,13 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
   const el = (tag, cls, text) => { const node=document.createElement(tag); if(cls) node.className=cls; if(text!==undefined) node.textContent=text; return node; };
   const button = (label,action,id,kind='secondary') => { const node=el('button','btn small '+kind,label); node.onclick=()=>send(action,id); return node; };
   const section = (title,count) => { const card=el('section','card'); const head=el('div','section-head'); head.append(el('h2','',title),el('span','',String(count))); const content=el('div','content'); card.append(head,content); return {card,content}; };
-  const agentFileItem = f => { const item=el('div','item'),head=el('div','item-head'),owner=f.owner==='intent-loop'?'vibecheck':f.owner; head.append(el('span','item-title',f.title),el('span','badge '+(f.exists?'ready':'neutral'),f.exists?'present':'optional')); item.append(head,el('div','meta',owner+' · '+f.path+(f.localOnly?' · local only':'')),el('p','',f.description)); const a=el('div','item-actions'); a.append(button(f.exists?'Open':'Create','manage-agent-file',f.path,f.exists?'secondary':'ghost')); item.append(a); return item; };
+  const percent = value => Number(value).toFixed(2)+'%';
+  const signed = value => (value>0?'+':'')+Number(value).toFixed(2)+' pp';
+  const summaryText = summary => { if(!summary)return 'No structured metrics available'; if(summary.kind==='tests')return summary.passed+'/'+summary.total+' passed · '+summary.failed+' failed'+(summary.skipped?' · '+summary.skipped+' skipped':''); if(summary.kind==='coverage')return percent(summary.lines)+' lines'+(summary.change?' · '+signed(summary.change):''); const movement=(summary.newIssues?summary.newIssues+' new':'')+(summary.newIssues&&summary.fixedIssues?' · ':'')+(summary.fixedIssues?summary.fixedIssues+' fixed':''); return summary.total+' vulnerabilities'+(movement?' · '+movement:''); };
+  const metric = (label,value,detail,tone='neutral') => { const node=el('div','metric'); node.append(el('div','metric-label',label),el('div','metric-value '+tone,value),el('div','metric-detail',detail)); return node; };
+  const kindLabels={instructions:'Instructions',skills:'Skills',prompts:'Prompts & commands',agents:'Subagents',settings:'Settings',rules:'Rules',hooks:'Hooks',mcp:'MCP servers',plugins:'Plugins','output-styles':'Output styles'};
+  const kindOrder=['instructions','skills','prompts','agents','settings','rules','hooks','mcp','plugins','output-styles'];
+  const agentFileItem = f => { const item=el('div','item'),head=el('div','item-head'),owner=f.owner==='intent-loop'?'vibecheck':f.owner; head.append(el('span','item-title',f.title),el('span','badge '+(f.exists?'ready':'neutral'),f.exists?'present':'optional')); item.append(head,el('div','meta',owner+' · '+(kindLabels[f.kind]||f.kind)+' · '+f.path+(f.localOnly?' · local only':'')),el('p','',f.description)); const a=el('div','item-actions'); a.append(button(f.exists?'Open':'Create','manage-agent-file',f.path,f.exists?'secondary':'ghost')); item.append(a); return item; };
   function render(data) {
     app.replaceChildren();
     if (data.kind !== 'ready') { const box=el('section','hero'); box.append(el('h1','', 'VibeCheck'),el('p','',data.reason)); box.append(button('Start observing','start',undefined,'primary')); app.append(box); return; }
@@ -188,8 +202,15 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     const gates=section('Quality gates',s.verification.length);
     if(data.configurationError) gates.content.append(el('div','callout danger','Configuration error: '+data.configurationError));
     if(data.missingGates.length) { const c=el('div','callout'); c.append(el('strong','', 'Recommended setup missing'),el('p','',data.missingGates.join(', ')+' — add these checks so “ready” means more.')); c.append(button('Configure gates','config')); gates.content.append(c); }
+    const latest=category=>s.verification.filter(v=>(data.categories[v.name]||'other')===category&&v.summary).sort((a,b)=>(b.finishedAt||'').localeCompare(a.finishedAt||''))[0];
+    const testGate=latest('tests'), coverageGate=latest('coverage'), securityGate=latest('security'), metrics=el('div','metrics');
+    metrics.append(
+      metric('Tests',testGate?testGate.summary.passed+'/'+testGate.summary.total:'—',testGate?testGate.summary.failed+' failed · '+testGate.status:'Run a test gate',testGate?(testGate.status==='passed'?'ready':testGate.status==='failed'?'blocked':'incomplete'):'neutral'),
+      metric('Line coverage',coverageGate?percent(coverageGate.summary.lines):'—',coverageGate?(coverageGate.summary.change?signed(coverageGate.summary.change)+' · ':'')+coverageGate.status:'Run a coverage gate',coverageGate?(coverageGate.status==='passed'?'ready':coverageGate.status==='failed'?'blocked':'incomplete'):'neutral'),
+      metric('Security',securityGate?String(securityGate.summary.total):'—',securityGate?securityGate.summary.newIssues+' new · '+securityGate.summary.fixedIssues+' fixed':'Run a security gate',securityGate?(securityGate.status==='failed'?'blocked':securityGate.status==='passed'?(securityGate.summary.total?'incomplete':'ready'):'incomplete'):'neutral')
+    ); gates.content.append(metrics);
     if(!s.verification.length) gates.content.append(el('div','empty','No checks configured yet. Add tests, coverage, and security checks.'));
-    s.verification.forEach(v=>{ const item=el('div','item'), head=el('div','item-head'), title=el('div','row'); title.append(el('i','dot '+v.status),el('span','item-title',v.name)); head.append(title,el('span','badge '+(v.status==='passed'?'ready':v.status==='failed'?'blocked':'incomplete'),v.status)); item.append(head,el('div','meta',(data.categories[v.name]||'other')+(v.required===false?' · optional':' · required'))); const a=el('div','item-actions'); a.append(button(v.status==='running'?'Running…':'Run','run-check',v.name),button('Output','check-output',v.name,'ghost')); item.append(a); gates.content.append(item); });
+    s.verification.forEach(v=>{ const item=el('div','item'), head=el('div','item-head'), title=el('div','row'); title.append(el('i','dot '+v.status),el('span','item-title',v.name)); head.append(title,el('span','badge '+(v.status==='passed'?'ready':v.status==='failed'?'blocked':'incomplete'),v.status)); item.append(head,el('div','meta',(data.categories[v.name]||'other')+(v.required===false?' · optional':' · required')+(v.finishedAt?' · '+new Date(v.finishedAt).toLocaleString():'')+(v.durationMs!==undefined?' · '+(v.durationMs/1000).toFixed(1)+'s':''))); if(v.summary)item.append(el('div','callout',summaryText(v.summary))); const a=el('div','item-actions'); a.append(button(v.status==='running'?'Running…':'Run','run-check',v.name),button('Output','check-output',v.name,'ghost')); item.append(a); gates.content.append(item); });
     gates.content.append(button('Open quality-gate configuration','config',undefined,'ghost')); app.append(gates.card);
 
     const attention=section('Needs attention',open.length);
@@ -211,7 +232,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     const owners=[['codex','Codex'],['claude','Claude'],['intent-loop','VibeCheck']], tabs=el('div','tabs'), panel=el('div','content tab-panel');
     tabs.setAttribute('role','tablist'); tabs.setAttribute('aria-label','Agent workspace files'); panel.setAttribute('role','tabpanel');
     const savedOwner=(vscode.getState()||{}).agentFileOwner, initialOwner=owners.some(([owner])=>owner===savedOwner)?savedOwner:'codex';
-    const showOwner=owner=>{ panel.replaceChildren(...s.agentFiles.filter(f=>f.owner===owner).map(agentFileItem)); panel.setAttribute('aria-labelledby','agent-tab-'+owner); tabs.querySelectorAll('[role="tab"]').forEach(tab=>{ const selected=tab.dataset.owner===owner; tab.setAttribute('aria-selected',String(selected)); tab.tabIndex=selected?0:-1; }); vscode.setState({...vscode.getState(),agentFileOwner:owner}); };
+    const showOwner=owner=>{ const ownerFiles=s.agentFiles.filter(f=>f.owner===owner),groups=[]; kindOrder.forEach(kind=>{ const files=ownerFiles.filter(f=>f.kind===kind); if(!files.length)return; const group=el('div','capability-group'); group.append(el('div','capability-label',(kindLabels[kind]||kind)+' · '+files.filter(f=>f.exists).length+'/'+files.length+' present'),...files.map(agentFileItem)); groups.push(group); }); panel.replaceChildren(...groups); panel.setAttribute('aria-labelledby','agent-tab-'+owner); tabs.querySelectorAll('[role="tab"]').forEach(tab=>{ const selected=tab.dataset.owner===owner; tab.setAttribute('aria-selected',String(selected)); tab.tabIndex=selected?0:-1; }); vscode.setState({...vscode.getState(),agentFileOwner:owner}); };
     owners.forEach(([owner,label],index)=>{ const files=s.agentFiles.filter(f=>f.owner===owner), tab=el('button','tab',label+' ('+files.length+')'); tab.type='button'; tab.dataset.owner=owner; tab.id='agent-tab-'+owner; tab.setAttribute('role','tab'); tab.setAttribute('aria-controls','agent-file-panel'); tab.onclick=()=>showOwner(owner); tab.onkeydown=event=>{ if(event.key!=='ArrowLeft'&&event.key!=='ArrowRight') return; event.preventDefault(); const offset=event.key==='ArrowRight'?1:-1, next=owners[(index+offset+owners.length)%owners.length][0]; showOwner(next); tabs.querySelector('[data-owner="'+next+'"]').focus(); }; tabs.append(tab); });
     panel.id='agent-file-panel'; panel.setAttribute('aria-labelledby','agent-tab-'+initialOwner); agents.card.append(tabs,panel); showOwner(initialOwner);
     const adapter=el('div','item'); adapter.append(el('div','item-title','Local agent event adapters'),el('div','meta',s.agent.connectedAgents.length?s.agent.connectedAgents.join(', ')+' connected':'Optional lifecycle context; repository monitoring works without adapters.')); const aa=el('div','item-actions'); aa.append(button('Connect Codex','install-codex'),button('Connect Claude','install-claude'),button('Remove adapter','remove-adapter',undefined,'ghost')); adapter.append(aa); const agentFooter=el('div','content'); agentFooter.append(adapter); agents.card.append(agentFooter); app.append(agents.card);

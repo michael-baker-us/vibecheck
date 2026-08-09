@@ -233,10 +233,46 @@ function agentFileTemplate(relativePath: string, hasAgentsFile: boolean): string
     return "# Local Claude Code Instructions\n\n<!-- Personal project guidance. Keep this file out of version control. -->\n";
   }
   if (relativePath === ".codex/config.toml") {
-    return "# Project-scoped Codex settings. Codex loads this file only for trusted projects.\n";
+    return "# Project-scoped Codex settings. Codex loads this file only for trusted projects.\n# MCP servers and lifecycle hooks can also be configured here.\n";
+  }
+  if (relativePath === ".codex/hooks.json") {
+    return "{\n  \"description\": \"Project lifecycle hooks\",\n  \"hooks\": {}\n}\n";
+  }
+  if (relativePath === ".codex/rules/default.rules") {
+    return "# Project command policy. Add reviewed prefix_rule(...) entries here.\n";
+  }
+  if (relativePath === ".codex/agents/reviewer.toml") {
+    return "name = \"reviewer\"\ndescription = \"Reviews changes for correctness, risk, and missing verification.\"\ndeveloper_instructions = \"Inspect the requested change and report concrete, evidence-backed findings.\"\n";
+  }
+  if (relativePath === ".agents/skills/repository-workflow/SKILL.md") {
+    return "---\nname: repository-workflow\ndescription: Follow this repository's repeatable engineering workflow.\n---\n\n# Repository workflow\n\n<!-- Add focused steps, expected inputs, verification, and output requirements. -->\n";
+  }
+  if (relativePath === ".codex-plugin/plugin.json") {
+    return "{\n  \"name\": \"repository-plugin\",\n  \"version\": \"0.1.0\",\n  \"description\": \"Repository Codex plugin\"\n}\n";
   }
   if (relativePath === ".claude/settings.json" || relativePath === ".claude/settings.local.json") {
     return "{}\n";
+  }
+  if (relativePath === ".claude/rules/project.md") {
+    return "---\npaths:\n  - \"**/*\"\n---\n\n# Project rule\n\n<!-- Add focused Claude Code guidance. Narrow the paths when appropriate. -->\n";
+  }
+  if (relativePath === ".claude/skills/repository-workflow/SKILL.md") {
+    return "---\nname: repository-workflow\ndescription: Follow this repository's repeatable engineering workflow.\n---\n\n# Repository workflow\n\n<!-- Add focused steps, expected inputs, verification, and output requirements. -->\n";
+  }
+  if (relativePath === ".claude/commands/example.md") {
+    return "---\ndescription: Example legacy command; prefer a skill for new reusable workflows.\n---\n\n<!-- Add the reusable prompt. -->\n";
+  }
+  if (relativePath === ".claude/agents/reviewer.md") {
+    return "---\nname: reviewer\ndescription: Reviews changes for correctness, risk, and missing verification.\ntools: Read, Grep, Glob\n---\n\nInspect the requested change and report concrete, evidence-backed findings.\n";
+  }
+  if (relativePath === ".claude/output-styles/project.md") {
+    return "---\nname: Project\ndescription: Project-specific response style.\nkeep-coding-instructions: true\n---\n\n<!-- Describe the desired response format and tone. -->\n";
+  }
+  if (relativePath === ".mcp.json") {
+    return "{\n  \"mcpServers\": {}\n}\n";
+  }
+  if (relativePath === ".claude-plugin/plugin.json") {
+    return "{\n  \"name\": \"repository-plugin\",\n  \"version\": \"0.1.0\",\n  \"description\": \"Repository Claude Code plugin\"\n}\n";
   }
   if (relativePath === ".intent-loop/rules.yaml") {
     return "# Deterministic repository boundaries.\nboundaries: []\n";

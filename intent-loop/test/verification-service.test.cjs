@@ -34,3 +34,31 @@ test("runs trusted-style local checks and invalidates them after relevant edits"
   const [stale] = await service.refreshFreshness(root, [result]);
   assert.equal(stale.status, "stale");
 });
+
+test("retains structured metrics from verification output", async (context) => {
+  const root = mkdtempSync(join(tmpdir(), "intent-loop-verification-summary-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const git = (...args) => execFileSync("git", args, { cwd: root, stdio: "ignore" });
+  git("init", "--quiet");
+  git("config", "user.name", "Intent Loop Test");
+  git("config", "user.email", "intent-loop@example.invalid");
+  writeFileSync(join(root, "index.js"), "module.exports = 1;\n");
+  git("add", ".");
+  git("commit", "--quiet", "-m", "baseline");
+
+  const service = new VerificationService(new GitCollector());
+  const result = await service.run(root, {
+    name: "tests",
+    category: "tests",
+    required: true,
+    command: "node -e \"console.log('# tests 3\\n# pass 3\\n# fail 0')\"",
+    invalidatedBy: ["**/*"],
+  });
+  assert.deepEqual(result.summary, {
+    kind: "tests",
+    total: 3,
+    passed: 3,
+    failed: 0,
+    skipped: 0,
+  });
+});

@@ -7,7 +7,9 @@ import { minimatch } from "minimatch";
 
 import { GitCollector } from "../collectors/git-collector";
 import { VerificationDefinition } from "../domain/configuration";
+import { categoryFor } from "../domain/quality-gates";
 import { VerificationState } from "../domain/verification";
+import { parseVerificationSummary } from "./result-parser";
 
 const MAX_OUTPUT_CHARACTERS = 200_000;
 
@@ -58,6 +60,7 @@ export class VerificationService {
     definition: VerificationDefinition,
     signal?: AbortSignal,
     onStarted?: (state: VerificationState) => void,
+    previous?: VerificationState,
   ): Promise<VerificationState> {
     const startedAt = new Date();
     const running: VerificationState = {
@@ -78,6 +81,7 @@ export class VerificationService {
       exitCode: result.exitCode,
       output: this.redact(result.output).slice(-MAX_OUTPUT_CHARACTERS),
       inputHashes,
+      summary: parseVerificationSummary(categoryFor(definition), result.output, previous?.summary),
     };
   }
 

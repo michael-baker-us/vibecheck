@@ -207,12 +207,13 @@ export class ObservationController implements vscode.Disposable {
     const definition = this.configuration.verification.find((item) => item.name === name);
     if (!definition) throw new Error(`Unknown verification command: ${name}`);
     const repositoryRoot = this.snapshot.state.repositoryRoot;
+    const previous = this.snapshot.state.verification.find((item) => item.name === name);
     await this.replaceVerification({
       ...definition,
       status: "running",
       startedAt: new Date().toISOString(),
     });
-    const result = await this.verificationService.run(repositoryRoot, definition, signal);
+    const result = await this.verificationService.run(repositoryRoot, definition, signal, undefined, previous);
     await this.replaceVerification(result);
     await this.refresh();
   }
