@@ -1,8 +1,8 @@
 {
   "name": "intent-loop",
-  "displayName": "Intent Loop",
-  "description": "A local control center for AI-assisted coding.",
-  "version": "0.3.0",
+  "displayName": "VibeCheck",
+  "description": "Local engineering confidence for AI-assisted coding.",
+  "version": "0.5.0",
   "private": true,
   "publisher": "local",
   "license": "UNLICENSED",
@@ -28,134 +28,123 @@
       {
         "command": "intentLoop.start",
         "title": "Start Observing",
-        "category": "Intent Loop",
+        "category": "VibeCheck",
         "icon": "$(play)"
       },
       {
         "command": "intentLoop.pause",
         "title": "Pause Observation",
-        "category": "Intent Loop",
+        "category": "VibeCheck",
         "icon": "$(debug-pause)"
       },
       {
         "command": "intentLoop.refresh",
         "title": "Refresh Workspace State",
-        "category": "Intent Loop",
+        "category": "VibeCheck",
         "icon": "$(refresh)"
       },
       {
         "command": "intentLoop.selectPlan",
         "title": "Choose Active Plan Document",
-        "category": "Intent Loop",
+        "category": "VibeCheck",
         "icon": "$(list-tree)"
       },
       {
         "command": "intentLoop.openPlan",
         "title": "Open Active Plan Document",
-        "category": "Intent Loop",
+        "category": "VibeCheck",
         "icon": "$(go-to-file)"
       },
       {
         "command": "intentLoop.runVerification",
         "title": "Run Verification",
-        "category": "Intent Loop",
+        "category": "VibeCheck",
         "icon": "$(run)"
       },
       {
         "command": "intentLoop.runAllVerification",
         "title": "Run All Verification",
-        "category": "Intent Loop",
+        "category": "VibeCheck",
         "icon": "$(beaker)"
       },
       {
         "command": "intentLoop.showVerificationOutput",
         "title": "Show Verification Output",
-        "category": "Intent Loop",
+        "category": "VibeCheck",
         "icon": "$(output)"
       },
       {
         "command": "intentLoop.inspectFinding",
         "title": "Inspect Finding",
-        "category": "Intent Loop"
+        "category": "VibeCheck"
       },
       {
         "command": "intentLoop.acceptFinding",
         "title": "Accept as Intentional",
-        "category": "Intent Loop",
+        "category": "VibeCheck",
         "icon": "$(pass)"
       },
       {
         "command": "intentLoop.dismissFinding",
         "title": "Dismiss Finding",
-        "category": "Intent Loop",
+        "category": "VibeCheck",
         "icon": "$(close)"
       },
       {
         "command": "intentLoop.reopenFinding",
         "title": "Reopen Finding",
-        "category": "Intent Loop",
+        "category": "VibeCheck",
         "icon": "$(history)"
       },
       {
         "command": "intentLoop.copyPrompt",
         "title": "Copy Suggested Agent Prompt",
-        "category": "Intent Loop",
+        "category": "VibeCheck",
         "icon": "$(copy)"
       },
       {
         "command": "intentLoop.openConfig",
         "title": "Open Local Configuration",
-        "category": "Intent Loop",
+        "category": "VibeCheck",
         "icon": "$(settings-gear)"
       },
       {
-        "command": "intentLoop.exportReview",
-        "title": "Export Local Review",
-        "category": "Intent Loop",
+        "command": "intentLoop.createReport",
+        "title": "Create Evidence Report",
+        "category": "VibeCheck",
         "icon": "$(export)"
+      },
+      {
+        "command": "intentLoop.manageAgentFile",
+        "title": "Open or Create Agent Workspace File",
+        "category": "VibeCheck"
       },
       {
         "command": "intentLoop.installCodexAdapter",
         "title": "Install Local Codex Adapter",
-        "category": "Intent Loop"
+        "category": "VibeCheck"
       },
       {
         "command": "intentLoop.installClaudeAdapter",
         "title": "Install Local Claude Adapter",
-        "category": "Intent Loop"
+        "category": "VibeCheck"
       },
       {
         "command": "intentLoop.uninstallAgentAdapter",
         "title": "Remove Local Agent Adapter",
-        "category": "Intent Loop"
-      },
-      {
-        "command": "intentLoop.reset",
-        "title": "Reset Baseline to HEAD",
-        "category": "Intent Loop"
-      },
-      {
-        "command": "intentLoop.completeLoop",
-        "title": "Finish Current Loop and Start Next",
-        "category": "Intent Loop",
-        "icon": "$(pass-filled)"
-      },
-      {
-        "command": "intentLoop.openChangedDiff",
-        "title": "Open Changed File Diff",
-        "category": "Intent Loop"
+        "category": "VibeCheck"
       },
       {
         "command": "intentLoop.deleteData",
         "title": "Delete Local Observation Data",
-        "category": "Intent Loop"
+        "category": "VibeCheck"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
           "id": "intent-loop",
-          "title": "Intent Loop",
+          "title": "VibeCheck",
           "icon": "resources/intent-loop.svg"
         }
       ]
@@ -199,7 +188,7 @@
       ]
     },
     "configuration": {
-      "title": "Intent Loop",
+      "title": "VibeCheck",
       "properties": {
         "intentLoop.autoStart": {
           "type": "boolean",
@@ -222,10 +211,10 @@
     "watch": "concurrently --kill-others \"tsc -w --noEmit -p ./\" \"esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --sourcemap --outfile=dist/extension.js --watch\"",
     "check": "tsc --noEmit -p ./",
     "test": "npm run compile && node --test test/*.test.cjs",
-    "coverage": "npm run compile && c8 --all --check-coverage --lines 80 --functions 75 --branches 60 --statements 80 --include='dist/adapters/adapter-installer.js' --include='dist/analyzers/**/*.js' --include='dist/collectors/git-collector.js' --include='dist/collectors/plan-collector.js' --include='dist/config/**/*.js' --include='dist/domain/plans.js' --include='dist/domain/quality-gates.js' --include='dist/prompts/**/*.js' --include='dist/reports/**/*.js' --include='dist/verification/**/*.js' --reporter=text node --test test/*.test.cjs",
+    "coverage": "npm run compile && c8 --all --check-coverage --lines 80 --functions 75 --branches 60 --statements 80 --include='dist/adapters/adapter-installer.js' --include='dist/analyzers/**/*.js' --include='dist/collectors/agent-file-collector.js' --include='dist/collectors/git-collector.js' --include='dist/collectors/plan-collector.js' --include='dist/config/**/*.js' --include='dist/domain/plans.js' --include='dist/domain/quality-gates.js' --include='dist/prompts/**/*.js' --include='dist/reports/**/*.js' --include='dist/verification/**/*.js' --reporter=text node --test test/*.test.cjs",
     "security": "npm audit --audit-level=high",
     "verify": "npm run check && npm run coverage",
-    "package:vsix": "npm run verify && vsce package --out intent-loop-0.3.0.vsix --allow-missing-repository --skip-license --no-dependencies --no-rewrite-relative-links"
+    "package:vsix": "npm run verify && vsce package --out vibecheck-0.5.0.vsix --allow-missing-repository --skip-license --no-dependencies --no-rewrite-relative-links"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

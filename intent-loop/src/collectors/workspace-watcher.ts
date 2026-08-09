@@ -6,6 +6,7 @@ const IGNORED_SEGMENTS = new Set([".git", ".vscode-test", "coverage", "dist", "n
 
 export class WorkspaceWatcher implements vscode.Disposable {
   private readonly watcher: vscode.FileSystemWatcher;
+  private readonly gitWatcher: vscode.FileSystemWatcher;
   private timer: NodeJS.Timeout | undefined;
 
   public constructor(
@@ -16,10 +17,16 @@ export class WorkspaceWatcher implements vscode.Disposable {
     this.watcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(root, "**/*"),
     );
+    this.gitWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(root, ".git/{HEAD,packed-refs,refs/**}"),
+    );
 
     this.watcher.onDidCreate((uri) => this.schedule(uri));
     this.watcher.onDidChange((uri) => this.schedule(uri));
     this.watcher.onDidDelete((uri) => this.schedule(uri));
+    this.gitWatcher.onDidCreate(() => this.scheduleGit());
+    this.gitWatcher.onDidChange(() => this.scheduleGit());
+    this.gitWatcher.onDidDelete(() => this.scheduleGit());
   }
 
   public dispose(): void {
@@ -27,6 +34,7 @@ export class WorkspaceWatcher implements vscode.Disposable {
       clearTimeout(this.timer);
     }
     this.watcher.dispose();
+    this.gitWatcher.dispose();
   }
 
   private schedule(uri: vscode.Uri): void {
@@ -39,6 +47,14 @@ export class WorkspaceWatcher implements vscode.Disposable {
       clearTimeout(this.timer);
     }
 
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      this.onChanged();
+    }, this.debounceMs());
+  }
+
+  private scheduleGit(): void {
+    if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = undefined;
       this.onChanged();

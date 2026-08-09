@@ -29,6 +29,8 @@ test("discovers a repository and captures content-aware changes", async (context
   const repository = await collector.discover(repositoryRoot);
   assert.equal(repository.root, realpathSync(repositoryRoot));
   assert.match(repository.head, /^[0-9a-f]{40}$/);
+  assert.equal(repository.branch, git("branch", "--show-current").trim());
+  assert.equal(repository.subject, "baseline");
   assert.deepEqual(await collector.collectChanges(repository.root, repository.head), []);
   assert.equal(await collector.isWorkingTreeClean(repository.root), true);
 

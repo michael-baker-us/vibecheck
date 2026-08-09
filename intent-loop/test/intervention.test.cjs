@@ -5,7 +5,7 @@ const { buildFollowUpPrompt } = require("../dist/prompts/follow-up-builder");
 const { buildMarkdownReport } = require("../dist/reports/markdown-report");
 
 const state = {
-  version: 3,
+  version: 4,
   workspaceRoot: "/tmp/repo",
   repositoryRoot: "/tmp/repo",
   baselineCommit: "abc123",
@@ -13,6 +13,7 @@ const state = {
   lastUpdatedAt: "2026-01-01T00:01:00.000Z",
   paused: false,
   planCandidates: [],
+  agentFiles: [],
   activePlan: {
     path: "PLAN.md",
     title: "Keyboard controls",
@@ -50,7 +51,7 @@ test("builds a concrete follow-up prompt and local review", () => {
   assert.match(prompt, /tests: stale/);
 
   const report = buildMarkdownReport(state);
-  assert.match(report, /# Intent Loop Review/);
+  assert.match(report, /# VibeCheck Evidence Report/);
   assert.match(report, /PLAN\.md/);
   assert.match(report, /HIGH: Tests are stale/);
   assert.match(report, /\| tests \| stale \|/);

@@ -6,11 +6,11 @@ import * as vscode from "vscode";
 import { AdapterInstaller, SupportedAgent } from "./adapters/adapter-installer";
 import { LocalEventReader } from "./adapters/local-event-reader";
 import { AnalysisEngine } from "./analyzers/analysis-engine";
+import { AgentFileCollector } from "./collectors/agent-file-collector";
 import { GitCollector } from "./collectors/git-collector";
 import { PlanCollector } from "./collectors/plan-collector";
 import { ConfigLoader } from "./config/config-loader";
 import { Finding } from "./domain/findings";
-import { calculateReadiness, missingRecommendedCategories } from "./domain/quality-gates";
 import { ObservationController } from "./observation-controller";
 import { buildFollowUpPrompt } from "./prompts/follow-up-builder";
 import { buildMarkdownReport } from "./reports/markdown-report";
@@ -21,11 +21,11 @@ import { IntentLoopStatusBar } from "./ui/status-bar";
 import { VerificationService } from "./verification/verification-service";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const output = vscode.window.createOutputChannel("Intent Loop", { log: true });
+  const output = vscode.window.createOutputChannel("VibeCheck", { log: true });
   context.subscriptions.push(output);
   const workspaceFolder = selectWorkspaceFolder();
   if (!workspaceFolder) {
-    output.appendLine("Intent Loop requires an open workspace folder.");
+    output.appendLine("VibeCheck requires an open workspace folder.");
     return;
   }
 
@@ -44,6 +44,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     new WorkspaceStore(context.workspaceState),
     git,
     new PlanCollector(git),
+    new AgentFileCollector(git),
     new ConfigLoader(),
     new AnalysisEngine(),
     new VerificationService(git),
@@ -94,7 +95,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("intentLoop.runAllVerification", async () => {
       if (controller.getConfiguration().verification.length === 0) {
         const choice = await vscode.window.showInformationMessage(
-          "No Intent Loop verification commands are configured.",
+          "No VibeCheck verification commands are configured.",
           "Open Configuration",
         );
         if (choice === "Open Configuration") await openConfiguration(controller);
@@ -114,6 +115,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       output.show(true);
     }),
     vscode.commands.registerCommand("intentLoop.openConfig", () => openConfiguration(controller)),
+    vscode.commands.registerCommand("intentLoop.manageAgentFile", (relativePath?: string) =>
+      manageAgentFile(controller, relativePath),
+    ),
     vscode.commands.registerCommand("intentLoop.installCodexAdapter", () =>
       installAdapter(adapters, "codex"),
     ),
@@ -123,12 +127,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("intentLoop.uninstallAgentAdapter", () =>
       uninstallAdapter(adapters),
     ),
-    vscode.commands.registerCommand("intentLoop.exportReview", () => exportReview(controller)),
-    vscode.commands.registerCommand("intentLoop.completeLoop", () => completeLoop(controller)),
-    vscode.commands.registerCommand("intentLoop.openChangedDiff", (relativePath?: string) =>
-      openChangedDiff(controller, relativePath),
-    ),
-    vscode.commands.registerCommand("intentLoop.reset", () => resetBaseline(controller)),
+    vscode.commands.registerCommand("intentLoop.createReport", () => createEvidenceReport(controller)),
     vscode.commands.registerCommand("intentLoop.deleteData", () => deleteData(controller, adapters)),
   );
 
@@ -155,7 +154,7 @@ async function selectPlan(controller: ObservationController): Promise<void> {
     { label: browseLabel, planPath: undefined },
   ], {
     title: "Choose the active repository plan",
-    placeHolder: "Intent Loop follows this plan instead of maintaining a separate intent",
+    placeHolder: "VibeCheck follows this plan instead of maintaining a separate intent",
   });
   if (!selected) return;
   let planPath = selected.planPath;
@@ -190,6 +189,61 @@ async function openPlan(controller: ObservationController): Promise<void> {
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
 }
 
+async function manageAgentFile(
+  controller: ObservationController,
+  relativePath?: string,
+): Promise<void> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready" || !relativePath) return;
+  const definition = snapshot.state.agentFiles.find((file) => file.path === relativePath);
+  if (!definition) return;
+  if (relativePath === ".intent-loop/config.yaml") {
+    await openConfiguration(controller);
+    return;
+  }
+
+  const absolutePath = path.resolve(snapshot.state.repositoryRoot, relativePath);
+  const relative = path.relative(snapshot.state.repositoryRoot, absolutePath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return;
+  if (!definition.exists) {
+    const choice = await vscode.window.showInformationMessage(
+      `Create ${relativePath}?`,
+      { modal: true, detail: definition.description },
+      "Create File",
+    );
+    if (choice !== "Create File") return;
+    await mkdir(path.dirname(absolutePath), { recursive: true });
+    await writeFile(absolutePath, agentFileTemplate(relativePath, snapshot.state.agentFiles.some((file) => file.path === "AGENTS.md" && file.exists)), "utf8");
+    if (definition.localOnly) {
+      void vscode.window.showInformationMessage(`${relativePath} is personal. Confirm it is covered by this repository's .gitignore.`);
+    }
+    await controller.refresh();
+  }
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(absolutePath));
+}
+
+function agentFileTemplate(relativePath: string, hasAgentsFile: boolean): string {
+  if (relativePath === "AGENTS.md") {
+    return "# Repository Instructions\n\n## Verification\n\n<!-- Add the commands Codex should run before considering work complete. -->\n\n## Architecture\n\n<!-- Add durable project boundaries and conventions. -->\n";
+  }
+  if (relativePath === "CLAUDE.md") {
+    return `${hasAgentsFile ? "@AGENTS.md\n\n" : ""}# Claude Code\n\n<!-- Add only Claude-specific project guidance here. -->\n`;
+  }
+  if (relativePath === "CLAUDE.local.md") {
+    return "# Local Claude Code Instructions\n\n<!-- Personal project guidance. Keep this file out of version control. -->\n";
+  }
+  if (relativePath === ".codex/config.toml") {
+    return "# Project-scoped Codex settings. Codex loads this file only for trusted projects.\n";
+  }
+  if (relativePath === ".claude/settings.json" || relativePath === ".claude/settings.local.json") {
+    return "{}\n";
+  }
+  if (relativePath === ".intent-loop/rules.yaml") {
+    return "# Deterministic repository boundaries.\nboundaries: []\n";
+  }
+  return "";
+}
+
 async function inspectFinding(controller: ObservationController, finding: Finding): Promise<void> {
   const snapshot = controller.getSnapshot();
   if (snapshot.kind !== "ready") return;
@@ -222,7 +276,7 @@ async function copyPrompt(controller: ObservationController, finding?: Finding):
   if (snapshot.kind !== "ready") return;
   const prompt = buildFollowUpPrompt(snapshot.state, finding ? [finding.id] : undefined);
   await vscode.env.clipboard.writeText(prompt);
-  void vscode.window.showInformationMessage("Intent Loop follow-up prompt copied locally.");
+  void vscode.window.showInformationMessage("VibeCheck follow-up prompt copied locally.");
 }
 
 async function runVerification(controller: ObservationController, name: string): Promise<void> {
@@ -236,7 +290,7 @@ async function runVerification(controller: ObservationController, name: string):
   if (!definition) return;
   if (!controller.isVerificationTrusted(name)) {
     const choice = await vscode.window.showWarningMessage(
-      `Allow Intent Loop to run this local command in ${snapshot.state.repositoryRoot}?\n\n${definition.command}`,
+      `Allow VibeCheck to run this local command in ${snapshot.state.repositoryRoot}?\n\n${definition.command}`,
       { modal: true },
       "Trust and Run",
     );
@@ -247,7 +301,7 @@ async function runVerification(controller: ObservationController, name: string):
   await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: `Intent Loop: ${name}`,
+      title: `VibeCheck: ${name}`,
       cancellable: true,
     },
     async (_progress, token) => {
@@ -272,7 +326,7 @@ async function chooseVerification(
 ): Promise<string | undefined> {
   const definitions = controller.getConfiguration().verification;
   if (definitions.length === 0) {
-    void vscode.window.showInformationMessage("No Intent Loop verification commands are configured.");
+    void vscode.window.showInformationMessage("No VibeCheck verification commands are configured.");
     return undefined;
   }
   const selected = await vscode.window.showQuickPick(
@@ -294,7 +348,7 @@ async function openConfiguration(controller: ObservationController): Promise<voi
     await writeFile(
       configPath,
       [
-        "# Intent Loop runs only commands you explicitly trust in VS Code.",
+        "# VibeCheck runs only commands you explicitly trust in VS Code.",
         "plans:",
         "  include:",
         "    - PLAN.md",
@@ -337,81 +391,21 @@ async function openConfiguration(controller: ObservationController): Promise<voi
   await controller.refresh();
 }
 
-async function exportReview(controller: ObservationController): Promise<void> {
+async function createEvidenceReport(controller: ObservationController): Promise<void> {
   const snapshot = controller.getSnapshot();
   if (snapshot.kind !== "ready") return;
-  const destination = await vscode.window.showSaveDialog({
-    title: "Export local Intent Loop review",
-    defaultUri: vscode.Uri.file(path.join(snapshot.state.repositoryRoot, "intent-loop-review.md")),
-    filters: { Markdown: ["md"] },
-  });
-  if (!destination) return;
-  await vscode.workspace.fs.writeFile(
-    destination,
-    Buffer.from(buildMarkdownReport(snapshot.state), "utf8"),
-  );
-  void vscode.window.showInformationMessage(`Intent Loop review exported to ${destination.fsPath}.`);
-}
-
-async function resetBaseline(controller: ObservationController): Promise<void> {
-  const choice = await vscode.window.showWarningMessage(
-    "Reset the Intent Loop baseline to the repository's current HEAD? Uncommitted changes will still appear.",
-    { modal: true },
-    "Reset to HEAD",
-  );
-  if (choice === "Reset to HEAD") await controller.reset();
-}
-
-async function openChangedDiff(
-  controller: ObservationController,
-  relativePath?: string,
-): Promise<void> {
-  if (!relativePath) return;
-  const diff = await controller.getDiff(relativePath);
   const document = await vscode.workspace.openTextDocument({
-    language: "diff",
-    content: diff || `No diff is currently available for ${relativePath}.`,
+    language: "markdown",
+    content: buildMarkdownReport(snapshot.state),
   });
-  await vscode.window.showTextDocument(document, { preview: true });
-}
-
-async function completeLoop(controller: ObservationController): Promise<void> {
-  await controller.refresh();
-  const snapshot = controller.getSnapshot();
-  if (snapshot.kind !== "ready") return;
-
-  if (!(await controller.isWorkingTreeClean())) {
-    const choice = await vscode.window.showWarningMessage(
-      "This loop still has uncommitted changes. Commit or revert them before advancing the baseline; Intent Loop will never commit automatically.",
-      "Open Source Control",
-    );
-    if (choice === "Open Source Control") await vscode.commands.executeCommand("workbench.view.scm");
-    return;
-  }
-
-  const readiness = calculateReadiness(snapshot.state.findings, snapshot.state.verification);
-  const missing = missingRecommendedCategories(controller.getConfiguration().verification);
-  const concerns = [...readiness.reasons];
-  if (missing.length) concerns.push(`Recommended gates not configured: ${missing.join(", ")}`);
-  const detail = concerns.length ? `\n\n${concerns.map((reason) => `• ${reason}`).join("\n")}` : "";
-  const action = concerns.length ? "Finish Anyway" : "Finish Loop";
-  const choice = await vscode.window.showWarningMessage(
-    `Finish this loop and advance the baseline to the current HEAD?${detail}`,
-    { modal: true },
-    action,
-  );
-  if (choice !== action) return;
-
-  await controller.reset();
-  void vscode.window.showInformationMessage(
-    "Previous loop completed. The current HEAD is now the baseline; Intent Loop will continue following the active plan document.",
-  );
+  await vscode.window.showTextDocument(document, { preview: false });
+  void vscode.window.showInformationMessage("Evidence report created locally. Save it only if you want a repository artifact.");
 }
 
 async function installAdapter(adapters: AdapterInstaller, agent: SupportedAgent): Promise<void> {
   const configPath = adapters.configPath(agent);
   const choice = await vscode.window.showWarningMessage(
-    `Install the local Intent Loop ${agent} hook adapter? This will merge observer hooks into ${configPath}. Prompts and raw transcripts are not retained.`,
+    `Install the local VibeCheck ${agent} hook adapter? This will merge observer hooks into ${configPath}. Prompts and raw transcripts are not retained.`,
     { modal: true },
     "Install Local Adapter",
   );
@@ -422,7 +416,7 @@ async function installAdapter(adapters: AdapterInstaller, agent: SupportedAgent)
       agent === "codex"
         ? " Open /hooks in Codex to review and trust the new hook definitions."
         : " Restart active Claude sessions so they load the hooks.";
-    void vscode.window.showInformationMessage(`Intent Loop ${agent} adapter installed.${suffix}`);
+    void vscode.window.showInformationMessage(`VibeCheck ${agent} adapter installed.${suffix}`);
   } catch (error) {
     void vscode.window.showErrorMessage(`Could not install ${agent} adapter: ${String(error)}`);
   }
@@ -430,19 +424,19 @@ async function installAdapter(adapters: AdapterInstaller, agent: SupportedAgent)
 
 async function uninstallAdapter(adapters: AdapterInstaller): Promise<void> {
   const agent = await vscode.window.showQuickPick(["codex", "claude"] as const, {
-    title: "Remove an Intent Loop agent adapter",
+    title: "Remove a VibeCheck agent adapter",
   });
   if (!agent) return;
   const selectedAgent = agent as SupportedAgent;
   const choice = await vscode.window.showWarningMessage(
-    `Remove Intent Loop hook commands from ${adapters.configPath(selectedAgent)}? Other hooks will be preserved.`,
+    `Remove VibeCheck hook commands from ${adapters.configPath(selectedAgent)}? Other hooks will be preserved.`,
     { modal: true },
     "Remove Adapter",
   );
   if (choice !== "Remove Adapter") return;
   try {
     await adapters.uninstall(selectedAgent);
-    void vscode.window.showInformationMessage(`Intent Loop ${selectedAgent} adapter removed.`);
+    void vscode.window.showInformationMessage(`VibeCheck ${selectedAgent} adapter removed.`);
   } catch (error) {
     void vscode.window.showErrorMessage(`Could not remove ${selectedAgent} adapter: ${String(error)}`);
   }
@@ -453,7 +447,7 @@ async function deleteData(
   adapters: AdapterInstaller,
 ): Promise<void> {
   const choice = await vscode.window.showWarningMessage(
-    "Delete this workspace's Intent Loop state and the local shared agent-event log? Agent hook configuration will remain installed.",
+    "Delete this workspace's VibeCheck state and the local shared agent-event log? Agent hook configuration will remain installed.",
     { modal: true },
     "Delete Local Data",
   );
@@ -467,7 +461,7 @@ function selectWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
   if (!folders?.length) return undefined;
   if (folders.length > 1) {
     void vscode.window.showInformationMessage(
-      `Intent Loop currently observes the first workspace folder: ${folders[0].name}.`,
+      `VibeCheck currently observes the first workspace folder: ${folders[0].name}.`,
     );
   }
   return folders[0];

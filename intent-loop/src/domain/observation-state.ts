@@ -1,9 +1,10 @@
 import { AgentSummary } from "./agent-events";
+import { AgentWorkspaceFile } from "./agent-files";
 import { Finding } from "./findings";
 import { PlanDocument } from "./plans";
 import { VerificationState } from "./verification";
 
-export const OBSERVATION_STATE_VERSION = 3 as const;
+export const OBSERVATION_STATE_VERSION = 4 as const;
 
 export type FileChangeStatus = "added" | "modified" | "deleted" | "renamed";
 
@@ -21,12 +22,15 @@ export type ObservationState = {
   workspaceRoot: string;
   repositoryRoot: string;
   baselineCommit: string;
+  headBranch?: string;
+  headSubject?: string;
   startedAt: string;
   lastUpdatedAt: string;
   paused: boolean;
   selectedPlanPath?: string;
   activePlan?: PlanDocument;
   planCandidates: PlanDocument[];
+  agentFiles: AgentWorkspaceFile[];
   changedFiles: ChangedFile[];
   findings: Finding[];
   verification: VerificationState[];

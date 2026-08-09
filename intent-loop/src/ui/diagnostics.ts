@@ -22,7 +22,7 @@ export class FindingDiagnostics implements vscode.Disposable {
             ? vscode.DiagnosticSeverity.Warning
             : vscode.DiagnosticSeverity.Information,
         );
-        diagnostic.source = "Intent Loop";
+        diagnostic.source = "VibeCheck";
         diagnostic.code = finding.ruleId;
         const existing = grouped.get(absolutePath) ?? [];
         existing.push(diagnostic);

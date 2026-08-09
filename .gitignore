@@ -1,0 +1,6 @@
+# Personal agent settings
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Optional saved Intent Loop reports
+.intent-loop/reports/

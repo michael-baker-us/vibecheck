@@ -28,7 +28,7 @@ test("requires configured checks to pass and high-risk findings to be resolved",
   const check = { ...definition("tests", "npm test", "tests"), status: "passed" };
   assert.deepEqual(calculateReadiness([], [check]), {
     status: "ready",
-    label: "Ready to finish",
+    label: "Checks current",
     reasons: [],
   });
 

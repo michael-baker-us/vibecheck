@@ -1,8 +1,11 @@
-# Intent Loop Implementation Plan
+# VibeCheck Implementation Plan
 
 ## Implementation status — 2026-08-09
 
-Version 0.3.0 implements the complete local repository-mode vertical slice and its first
+Version 0.5.0 adopts the VibeCheck product name while retaining the established extension ID,
+command/settings keys, workspace-state keys, and `.intent-loop/` paths for compatibility.
+
+Version 0.4.0 implements the complete local repository-mode vertical slice and its first
 product-facing control center:
 
 - M0 repository observation, baseline state, native VS Code UI, and persistence;
@@ -11,8 +14,9 @@ product-facing control center:
 - M3 plan-aware follow-up prompts, finding resolution, and Markdown review export;
 - M4/M5 optional local Claude and Codex lifecycle adapters using bounded normalized JSONL events;
 - M6 configured path boundaries for relative TypeScript and JavaScript imports.
-- M7 guided sidebar workflow, explicit quality-gate categories, readiness, and safe loop completion.
+- M7 guided sidebar workflow, explicit quality-gate categories, and continuous readiness.
 - M8 repository Markdown plan discovery, progress extraction, and local active-plan selection.
+- M9 automatic commit-boundary tracking, evidence reporting, and Codex/Claude workspace file management.
 
 Remaining work is product validation and hardening rather than missing core workflow: sustained
 dogfooding, VS Code-host integration automation, multi-root support, performance measurement on
@@ -54,7 +58,7 @@ Evaluate the prototype through deliberate dogfooding rather than product telemet
 
 For each real task, record locally:
 
-- whether Intent Loop produced a finding;
+- whether VibeCheck produced a finding;
 - whether the finding was already obvious from the agent's final response;
 - whether it caused a follow-up, code change, or additional verification;
 - whether it reduced the amount of diff reviewed;

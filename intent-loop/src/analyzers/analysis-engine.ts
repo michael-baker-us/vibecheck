@@ -80,7 +80,7 @@ export class AnalysisEngine {
         findings.push({
           ruleId: "test.deleted",
           title: "Test file deleted",
-          explanation: `${change.path} was removed relative to the observation baseline.`,
+          explanation: `${change.path} was removed relative to the current commit.`,
           severity: "high",
           basis: "fact",
           evidence: [{ path: change.path, detail: "Deleted test file" }],
@@ -167,7 +167,7 @@ export class AnalysisEngine {
       {
         ruleId: "scope.diff-expansion",
         title: "Diff has expanded broadly",
-        explanation: `${changes.length} files differ from the baseline; the configured threshold is ${threshold}.`,
+        explanation: `${changes.length} files differ from the current commit; the configured threshold is ${threshold}.`,
         severity: "medium",
         basis: "heuristic",
         evidence: [{ detail: `${changes.length} changed files` }],

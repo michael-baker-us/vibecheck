@@ -49,7 +49,7 @@ export function calculateReadiness(
   if (pending.length) reasons.push(`${pending.length} required check${pending.length === 1 ? "" : "s"} not complete`);
   if (!required.length) reasons.push("No required quality gates configured");
 
-  if (blockingFindings.length || failed.length) return { status: "blocked", label: "Not ready", reasons };
+  if (blockingFindings.length || failed.length) return { status: "blocked", label: "Action needed", reasons };
   if (reasons.length) return { status: "incomplete", label: "Checks needed", reasons };
-  return { status: "ready", label: "Ready to finish", reasons: [] };
+  return { status: "ready", label: "Checks current", reasons: [] };
 }

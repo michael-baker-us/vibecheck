@@ -1,5 +1,3 @@
-import * as path from "node:path";
-
 import * as vscode from "vscode";
 
 import { IntentLoopConfiguration } from "../domain/configuration";
@@ -65,14 +63,13 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       pause: "intentLoop.pause",
       resume: "intentLoop.start",
       "run-all": "intentLoop.runAllVerification",
+      "check-output-menu": "intentLoop.showVerificationOutput",
       "copy-prompt": "intentLoop.copyPrompt",
-      export: "intentLoop.exportReview",
-      complete: "intentLoop.completeLoop",
+      export: "intentLoop.createReport",
       config: "intentLoop.openConfig",
       "install-codex": "intentLoop.installCodexAdapter",
       "install-claude": "intentLoop.installClaudeAdapter",
       "remove-adapter": "intentLoop.uninstallAgentAdapter",
-      reset: "intentLoop.reset",
       delete: "intentLoop.deleteData",
       start: "intentLoop.start",
     };
@@ -84,13 +81,8 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
 
     const snapshot = this.getSnapshot();
     if (snapshot.kind !== "ready" || !id) return;
-    if (message.action === "open-file") {
-      const changed = snapshot.state.changedFiles.find((file) => file.path === id);
-      if (changed) await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(path.join(snapshot.state.repositoryRoot, changed.path)));
-      return;
-    }
-    if (message.action === "diff-file") {
-      await vscode.commands.executeCommand("intentLoop.openChangedDiff", id);
+    if (message.action === "manage-agent-file") {
+      await vscode.commands.executeCommand("intentLoop.manageAgentFile", id);
       return;
     }
     const finding = snapshot.state.findings.find((item) => item.id === id);
@@ -135,6 +127,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     .ready { color: var(--vscode-testing-iconPassed); background: color-mix(in srgb, var(--vscode-testing-iconPassed) 13%, transparent); }
     .blocked { color: var(--vscode-testing-iconFailed); background: color-mix(in srgb, var(--vscode-testing-iconFailed) 13%, transparent); }
     .incomplete { color: var(--vscode-editorWarning-foreground); background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 13%, transparent); }
+    .neutral { color: var(--vscode-descriptionForeground); background: var(--vscode-textBlockQuote-background); }
     .plan { margin-top: 12px; padding: 10px; border-radius: 6px; background: var(--vscode-textBlockQuote-background); }
     .plan strong { display:block; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--vscode-descriptionForeground); }
     .plan span { display:block; margin-top:3px; }
@@ -178,23 +171,13 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
   const section = (title,count) => { const card=el('section','card'); const head=el('div','section-head'); head.append(el('h2','',title),el('span','',String(count))); const content=el('div','content'); card.append(head,content); return {card,content}; };
   function render(data) {
     app.replaceChildren();
-    if (data.kind !== 'ready') { const box=el('section','hero'); box.append(el('h1','', 'Intent Loop'),el('p','',data.reason)); box.append(button('Start observing','start',undefined,'primary')); app.append(box); return; }
+    if (data.kind !== 'ready') { const box=el('section','hero'); box.append(el('h1','', 'VibeCheck'),el('p','',data.reason)); box.append(button('Start observing','start',undefined,'primary')); app.append(box); return; }
     const s=data.state, open=s.findings.filter(f=>f.status==='open'), history=s.findings.filter(f=>f.status!=='open');
     const hero=el('section','hero'), top=el('div','hero-top');
-    top.append(el('h1','', 'Intent Loop'),el('span','badge '+data.readiness.status,data.readiness.label)); hero.append(top);
-    const plan=el('div','plan'); plan.append(el('strong','', 'Active repository plan'));
-    if(s.activePlan){
-      plan.append(el('span','item-title',s.activePlan.title),el('div','meta',s.activePlan.path));
-      if(s.activePlan.excerpt) plan.append(el('p','',s.activePlan.excerpt));
-      if(s.activePlan.tasks.length){ const done=s.activePlan.tasks.filter(t=>t.status==='completed').length; plan.append(el('div','meta',done+'/'+s.activePlan.tasks.length+' steps complete')); }
-      const pa=el('div','item-actions'); pa.append(button('Open plan','open-plan'),button('Choose another','select-plan',undefined,'ghost')); plan.append(pa);
-    } else {
-      plan.append(el('span','', 'No Markdown plan detected in this repository.'));
-      const pa=el('div','item-actions'); pa.append(button('Choose plan','select-plan')); plan.append(pa);
-    }
-    hero.append(plan);
+    top.append(el('h1','', 'Engineering confidence'),el('span','badge '+data.readiness.status,data.readiness.label)); hero.append(top);
+    hero.append(el('p','',s.changedFiles.length+' uncommitted file '+(s.changedFiles.length===1?'change':'changes')+' monitored against '+(s.headBranch||'current HEAD')+'. Use VS Code Source Control for files and diffs.'));
     const reasons=el('div',''); data.readiness.reasons.forEach(r=>reasons.append(el('p','reason','• '+r))); hero.append(reasons);
-    const primary=el('div','actions'); primary.append(button('Run all checks','run-all',undefined,'primary'),button('Copy agent prompt','copy-prompt'),button('Finish this loop','complete')); hero.append(primary); app.append(hero);
+    const primary=el('div','actions'); primary.append(button('Run all checks','run-all',undefined,'primary'),button('Create evidence report','export',undefined,'primary'),button('Copy agent follow-up','copy-prompt'),button('Refresh confidence','refresh')); hero.append(primary); app.append(hero);
 
     const gates=section('Quality gates',s.verification.length);
     if(data.configurationError) gates.content.append(el('div','callout danger','Configuration error: '+data.configurationError));
@@ -207,14 +190,28 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     if(!open.length) attention.content.append(el('div','empty','No unresolved findings.'));
     open.forEach(f=>{ const item=el('div','item'); const head=el('div','item-head'); head.append(el('span','item-title',f.title),el('span','badge '+(f.severity==='high'?'blocked':'incomplete'),f.severity)); item.append(head,el('div','meta',f.basis+' · '+f.explanation)); const a=el('div','item-actions'); a.append(button('Inspect','inspect-finding',f.id),button('Ask agent','prompt-finding',f.id),button('Intentional','accept-finding',f.id,'ghost'),button('Dismiss','dismiss-finding',f.id,'ghost')); item.append(a); attention.content.append(item); }); app.append(attention.card);
 
-    const changes=section('Changed files',s.changedFiles.length);
-    if(!s.changedFiles.length) changes.content.append(el('div','empty','Your working tree matches the baseline.'));
-    s.changedFiles.forEach(f=>{ const item=el('div','item'),head=el('div','item-head'); head.append(el('span','item-title',f.path),el('span','meta',f.status)); item.append(head); const a=el('div','item-actions'); if(f.status!=='deleted') a.append(button('Open','open-file',f.path)); a.append(button('View diff','diff-file',f.path,'ghost')); item.append(a); changes.content.append(item); }); app.append(changes.card);
+    const agents=section('Agent workspace',s.agentFiles.filter(f=>f.exists).length+' configured');
+    const plan=el('div','item');
+    if(s.activePlan){
+      const ph=el('div','item-head'); ph.append(el('span','item-title',s.activePlan.title),el('span','badge ready','active plan')); plan.append(ph,el('div','meta',s.activePlan.path));
+      if(s.activePlan.excerpt) plan.append(el('p','',s.activePlan.excerpt));
+      if(s.activePlan.tasks.length){ const done=s.activePlan.tasks.filter(t=>t.status==='completed').length; plan.append(el('div','meta',done+'/'+s.activePlan.tasks.length+' steps complete')); }
+      const pa=el('div','item-actions'); pa.append(button('Open plan','open-plan'),button('Choose another','select-plan',undefined,'ghost')); plan.append(pa);
+    } else {
+      plan.append(el('div','item-title','No repository plan detected'),el('div','meta','Choose an existing Markdown plan; VibeCheck will not create a competing intent.'));
+      plan.append(button('Choose plan','select-plan'));
+    }
+    agents.content.append(plan);
+    s.agentFiles.forEach(f=>{ const item=el('div','item'),head=el('div','item-head'),owner=f.owner==='intent-loop'?'vibecheck':f.owner; head.append(el('span','item-title',f.title),el('span','badge '+(f.exists?'ready':'neutral'),f.exists?'present':'optional')); item.append(head,el('div','meta',owner+' · '+f.path+(f.localOnly?' · local only':'')),el('p','',f.description)); const a=el('div','item-actions'); a.append(button(f.exists?'Open':'Create','manage-agent-file',f.path,f.exists?'secondary':'ghost')); item.append(a); agents.content.append(item); });
+    const adapter=el('div','item'); adapter.append(el('div','item-title','Local agent event adapters'),el('div','meta',s.agent.connectedAgents.length?s.agent.connectedAgents.join(', ')+' connected':'Optional lifecycle context; repository monitoring works without adapters.')); const aa=el('div','item-actions'); aa.append(button('Connect Codex','install-codex'),button('Connect Claude','install-claude'),button('Remove adapter','remove-adapter',undefined,'ghost')); adapter.append(aa); agents.content.append(adapter); app.append(agents.card);
+
+    const evidence=section('Evidence & reporting','local');
+    const summary=el('div','callout'); summary.append(el('strong','', 'Current evidence snapshot'),el('p','',(s.headSubject?s.headSubject+' · ':'')+s.verification.filter(v=>v.status==='passed').length+' checks passed · '+open.length+' findings open · updated '+new Date(s.lastUpdatedAt).toLocaleTimeString())); evidence.content.append(summary); const ea=el('div','actions'); ea.append(button('Create Markdown report','export'),button('Copy agent follow-up','copy-prompt'),button('Show check output','check-output-menu',undefined,'ghost'),button('Open quality config','config',undefined,'ghost')); evidence.content.append(ea); app.append(evidence.card);
 
     if(history.length){ const hist=section('Reviewed findings',history.length); history.forEach(f=>{ const item=el('div','item'); item.append(el('div','item-title',f.title),el('div','meta',f.status+' · '+f.severity)); item.append(button('Reopen','reopen-finding',f.id,'ghost')); hist.content.append(item); }); app.append(hist.card); }
 
-    const tools=el('section','card'), details=el('details'); details.append(el('summary','', 'Tools & local settings')); const tc=el('div','content'), row1=el('div','actions'), row2=el('div','actions'), row3=el('div','actions'); row1.append(button(s.paused?'Resume monitoring':'Pause monitoring',s.paused?'resume':'pause'),button('Refresh now','refresh')); row2.append(button('Export review','export'),button('Reset baseline','reset')); row3.append(button('Connect Codex','install-codex'),button('Connect Claude','install-claude'),button('Remove adapter','remove-adapter','', 'ghost'),button('Delete local data','delete','', 'ghost danger')); tc.append(row1,row2,row3); details.append(tc); tools.append(details); app.append(tools);
-    app.append(el('div','footer','Local only · baseline '+s.baselineCommit.slice(0,12)+(s.agent.connectedAgents.length?' · '+s.agent.connectedAgents.join(', ')+' connected':'')));
+    const tools=el('section','card'), details=el('details'); details.append(el('summary','', 'Monitoring & local data')); const tc=el('div','content'), row1=el('div','actions'); row1.append(button(s.paused?'Resume monitoring':'Pause monitoring',s.paused?'resume':'pause'),button('Refresh now','refresh'),button('Delete local data','delete',undefined,'ghost danger')); tc.append(row1); details.append(tc); tools.append(details); app.append(tools);
+    app.append(el('div','footer','Local only · '+(s.headBranch||'detached HEAD')+' · '+s.baselineCommit.slice(0,12)));
   }
   window.addEventListener('message',event=>{ if(event.data.type==='state') render(event.data.payload); });
   vscode.postMessage({action:'refresh'});

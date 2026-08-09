@@ -11,6 +11,8 @@ const MAX_TEXT_BYTES = 512 * 1024;
 export type RepositoryIdentity = {
   root: string;
   head: string;
+  branch: string;
+  subject: string;
 };
 
 type ChangedPath = {
@@ -27,10 +29,14 @@ export class GitCollector {
     try {
       head = (await this.run(["rev-parse", "--verify", "HEAD"], root)).trim();
     } catch {
-      throw new Error("Intent Loop requires a repository with at least one commit.");
+      throw new Error("VibeCheck requires a repository with at least one commit.");
     }
 
-    return { root, head };
+    const [branch, subject] = await Promise.all([
+      this.run(["rev-parse", "--abbrev-ref", "HEAD"], root),
+      this.run(["log", "-1", "--pretty=%s"], root),
+    ]);
+    return { root, head, branch: branch.trim(), subject: subject.trim() };
   }
 
   public async collectChanges(repositoryRoot: string, baselineCommit: string): Promise<ChangedFile[]> {

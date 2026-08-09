@@ -7,3 +7,7 @@ dist/
 coverage/
 .nyc_output/
 *.lcov
+
+# Personal agent settings
+CLAUDE.local.md
+.claude/settings.local.json

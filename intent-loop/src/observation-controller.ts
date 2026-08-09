@@ -3,6 +3,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 
 import { AnalysisEngine } from "./analyzers/analysis-engine";
+import { AgentFileCollector } from "./collectors/agent-file-collector";
 import { GitCollector } from "./collectors/git-collector";
 import { PlanCollector } from "./collectors/plan-collector";
 import { WorkspaceWatcher } from "./collectors/workspace-watcher";
@@ -24,7 +25,7 @@ import { VerificationService } from "./verification/verification-service";
 export class ObservationController implements vscode.Disposable {
   private snapshot: ObservationSnapshot = {
     kind: "unavailable",
-    reason: "Intent Loop has not initialized this workspace.",
+    reason: "VibeCheck has not initialized this workspace.",
   };
   private configuration: IntentLoopConfiguration = DEFAULT_CONFIGURATION;
   private configurationError: string | undefined;
@@ -37,6 +38,7 @@ export class ObservationController implements vscode.Disposable {
     private readonly store: WorkspaceStore,
     private readonly git: GitCollector,
     private readonly plans: PlanCollector,
+    private readonly agentFiles: AgentFileCollector,
     private readonly configLoader: ConfigLoader,
     private readonly analyzer: AnalysisEngine,
     private readonly verificationService: VerificationService,
@@ -81,7 +83,7 @@ export class ObservationController implements vscode.Disposable {
     }
     this.snapshot = {
       kind: "unavailable",
-      reason: "Observation is stopped. Run ‘Intent Loop: Start Observing’ to begin.",
+      reason: "Observation is stopped. Run ‘VibeCheck: Start Observing’ to begin.",
     };
     this.onStateChanged();
   }
@@ -97,12 +99,15 @@ export class ObservationController implements vscode.Disposable {
         workspaceRoot: this.workspaceFolder.uri.fsPath,
         repositoryRoot: repository.root,
         baselineCommit: repository.head,
+        headBranch: repository.branch,
+        headSubject: repository.subject,
         startedAt: now,
         lastUpdatedAt: now,
         paused: false,
         selectedPlanPath: previous?.selectedPlanPath,
         activePlan: previous?.activePlan,
         planCandidates: previous?.planCandidates ?? [],
+        agentFiles: previous?.agentFiles ?? [],
         changedFiles: [],
         findings: [],
         verification: [],
@@ -132,20 +137,11 @@ export class ObservationController implements vscode.Disposable {
     this.output.appendLine("Observation resumed.");
   }
 
-  public async reset(): Promise<void> {
-    await this.start();
-  }
-
-  public async isWorkingTreeClean(): Promise<boolean> {
-    if (this.snapshot.kind !== "ready") return false;
-    return this.git.isWorkingTreeClean(this.snapshot.state.repositoryRoot);
-  }
-
   public async deleteData(): Promise<void> {
     await this.store.deleteObservation();
     this.snapshot = {
       kind: "unavailable",
-      reason: "Local observation data was deleted. Start observing to create a new baseline.",
+      reason: "Local observation data was deleted. Start monitoring to rebuild workspace evidence.",
     };
     this.onStateChanged();
     this.output.appendLine("Local observation data deleted.");
@@ -254,9 +250,12 @@ export class ObservationController implements vscode.Disposable {
         this.output.appendLine(`Configuration error: ${this.configurationError}`);
       }
 
+      const repository = await this.git.discover(this.snapshot.state.repositoryRoot);
+      const commitAdvanced = repository.head !== this.snapshot.state.baselineCommit;
+      const baselineCommit = repository.head;
       const changedFiles = await this.git.collectChanges(
         this.snapshot.state.repositoryRoot,
-        this.snapshot.state.baselineCommit,
+        baselineCommit,
       );
       const planCandidates = await this.plans.collect(
         this.snapshot.state.repositoryRoot,
@@ -268,6 +267,7 @@ export class ObservationController implements vscode.Disposable {
         this.configuration.plans,
         this.snapshot.state.selectedPlanPath,
       );
+      const agentFiles = await this.agentFiles.collect(this.snapshot.state.repositoryRoot);
       const aligned = this.verificationService.alignDefinitions(
         this.configuration.verification,
         this.snapshot.state.verification,
@@ -279,20 +279,26 @@ export class ObservationController implements vscode.Disposable {
       const findings = this.analyzer.analyze(
         changedFiles,
         this.configuration,
-        this.snapshot.state.findings,
+        commitAdvanced ? [] : this.snapshot.state.findings,
       );
       await this.updateState({
         ...this.snapshot.state,
+        baselineCommit,
+        headBranch: repository.branch,
+        headSubject: repository.subject,
+        startedAt: commitAdvanced ? new Date().toISOString() : this.snapshot.state.startedAt,
         changedFiles,
         planCandidates,
         activePlan,
+        agentFiles,
         findings,
         verification,
         lastUpdatedAt: new Date().toISOString(),
       });
+      if (commitAdvanced) this.output.appendLine(`Commit changed; now observing from ${baselineCommit.slice(0, 12)}.`);
     } catch (error) {
       this.output.appendLine(`Refresh failed: ${this.errorMessage(error)}`);
-      void vscode.window.showWarningMessage(`Intent Loop refresh failed: ${this.errorMessage(error)}`);
+      void vscode.window.showWarningMessage(`VibeCheck refresh failed: ${this.errorMessage(error)}`);
     }
   }
 

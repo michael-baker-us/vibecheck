@@ -1,17 +1,17 @@
-# Intent Loop
+# VibeCheck
 
-**A local control center for AI-assisted coding in VS Code.**
+**Local engineering confidence for AI-assisted coding in VS Code.**
 
-Intent Loop observes repository changes, verification results, and optional Codex or Claude lifecycle
+VibeCheck observes repository changes, verification results, and optional Codex or Claude lifecycle
 events on your machine. It surfaces risky changes and stale evidence, then helps you decide what to
 inspect or ask the agent next.
 
-You continue using Codex or Claude normally. Intent Loop does not proxy, replace, or remotely
+You continue using Codex or Claude normally. VibeCheck does not proxy, replace, or remotely
 monitor the agent.
 
 ## What it does
 
-- Watches tracked and untracked changes relative to a Git baseline.
+- Monitors uncommitted work relative to the current `HEAD` and advances automatically after commits.
 - Detects runtime dependency changes, weakened tests, sensitive files, binaries, generated files,
   broad diffs, and configured TypeScript/JavaScript architecture boundaries.
 - Runs only explicitly configured and individually trusted local verification commands.
@@ -20,16 +20,17 @@ monitor the agent.
 - Discovers and follows existing repository Markdown plans instead of maintaining duplicate intent.
 - Maintains an attention queue with fact, configured-rule, and heuristic provenance.
 - Generates concrete follow-up prompts for the existing agent interface.
-- Exports a local Markdown review.
+- Creates local Markdown evidence reports without writing into the source tree unless you save them.
+- Opens or creates documented Codex, Claude, and VibeCheck repository files from one workspace.
 - Optionally ingests normalized local Codex and Claude hook events.
 
 ## Local-only boundary
 
-Intent Loop has no account, hosted backend, product telemetry, external LLM, or required network
+VibeCheck has no account, hosted backend, product telemetry, external LLM, or required network
 connection. Repository contents, findings, command output, agent metadata, and reports stay on the
 machine.
 
-Codex and Claude may communicate with their own providers during normal use. Intent Loop adds no
+Codex and Claude may communicate with their own providers during normal use. VibeCheck adds no
 upload path.
 
 The optional hook bridge deliberately excludes prompt text, assistant messages, transcripts, tool
@@ -42,30 +43,45 @@ rotated at 5 MB with one previous segment.
 npm install
 npm run verify
 npm run package:vsix
-code --install-extension intent-loop-0.3.0.vsix --force
+code --install-extension vibecheck-0.5.0.vsix --force
 ```
 
-Reload VS Code and open the Intent Loop icon in the Activity Bar.
+Reload VS Code and open the VibeCheck icon in the Activity Bar.
+
+Existing installations retain the extension ID `local.intent-loop`, command/settings prefix
+`intentLoop.*`, and `.intent-loop/` configuration directory. These identifiers remain in place so
+the rename does not discard workspace state, trusted commands, or existing configuration.
 
 ## Control-center workflow
 
 1. Open a Git-backed workspace.
-2. Confirm the discovered active plan or choose another repository Markdown plan.
-3. Use Codex, Claude, or manual editing normally.
-4. Use the visible **Run all checks** action before accepting the work.
-5. Open **Needs attention** when the status bar changes.
-6. Inspect, accept, or dismiss findings directly in the sidebar.
-7. Copy a suggested follow-up prompt or export a review.
-8. Commit the finished work, then select **Finish this loop** to advance the baseline while
-   continuing to follow the repository plan.
+2. Use Codex, Claude, or manual editing normally; use VS Code Source Control for files and diffs.
+3. Run individual quality gates or **Run all checks** whenever you need current evidence.
+4. Inspect, accept, or dismiss high-signal findings in **Needs attention**.
+5. Create an evidence report or copy a concrete agent follow-up.
+6. Open or create repository agent instructions, settings, rules, and plans under **Agent workspace**.
+7. Commit normally. VibeCheck detects the new `HEAD` and begins monitoring uncommitted work against
+   that commit automatically.
 
 The readiness badge is deliberately conservative. Required checks must pass and high-risk findings
-must be resolved. The sidebar also calls out missing test, coverage, or security categories. Intent
-Loop never commits code or silently overrides a warning.
+must be resolved. The sidebar also calls out missing test, coverage, or security categories.
+VibeCheck never stages or commits code, and it deliberately leaves file and diff UX to VS Code.
+
+## Agent workspace files
+
+The control center manages the documented repository surfaces rather than private transcripts:
+
+- Codex: `AGENTS.md`, nested `AGENTS.override.md`, and `.codex/config.toml`.
+- Claude: `CLAUDE.md`, `CLAUDE.local.md`, `.claude/settings*.json`, and `.claude/rules/**/*.md`.
+- VibeCheck: `.intent-loop/config.yaml`, `.intent-loop/rules.yaml`, and the active Markdown plan.
+
+When `AGENTS.md` already exists, a newly created `CLAUDE.md` imports it with `@AGENTS.md` so shared
+instructions are not duplicated. Personal Claude files are labeled local-only and should remain
+gitignored.
 
 ## Configuration
 
-Run **Intent Loop: Open Local Configuration** or create `.intent-loop/config.yaml`:
+Run **VibeCheck: Open Local Configuration** or create `.intent-loop/config.yaml`:
 
 ```yaml
 plans:
@@ -115,7 +131,7 @@ verification:
 diff_expansion_threshold: 15
 ```
 
-Intent Loop reads ordinary Markdown rather than introducing its own plan format. It extracts the
+VibeCheck reads ordinary Markdown rather than introducing its own plan format. It extracts the
 first heading, objective/goal/overview prose, and common task markers such as `[ ]`, `[x]`, and
 `[~]`. The newest matching plan is selected automatically unless the repository config supplies an
 `active` default or you choose a plan locally. Plan files must remain inside the observed repository;
@@ -145,14 +161,14 @@ language resolution is not presented as a violation.
 
 Repository mode does not require an agent adapter. To add lifecycle context, run one of:
 
-- **Intent Loop: Install Local Codex Adapter**
-- **Intent Loop: Install Local Claude Adapter**
+- **VibeCheck: Install Local Codex Adapter**
+- **VibeCheck: Install Local Claude Adapter**
 
 The commands merge observer hooks into `~/.codex/hooks.json` or `~/.claude/settings.json` and install
 the small bridge under `~/.intent-loop/bin/`. Existing hooks and settings are preserved.
 
 Codex requires reviewing and trusting new non-managed hook definitions through `/hooks`. Remove
-either integration with **Intent Loop: Remove Local Agent Adapter**.
+either integration with **VibeCheck: Remove Local Agent Adapter**.
 
 Adapter behavior follows the current [Codex hooks documentation](https://learn.chatgpt.com/docs/hooks)
 and [Claude Code hooks documentation](https://code.claude.com/docs/en/hooks). If an agent changes
@@ -181,7 +197,8 @@ behavior.
 ## Current limitations
 
 - Only the first folder in a multi-root workspace is observed.
-- The baseline is a Git commit; resetting to `HEAD` does not hide existing uncommitted changes.
+- Git metadata watching targets ordinary repositories; unusual external Git-dir layouts may require
+  a manual refresh immediately after committing.
 - Architecture enforcement currently resolves relative JavaScript and TypeScript imports only.
 - Risk detection intentionally favors a small, explainable rule set over broad AI classification.
 - Agent adapters report lifecycle awareness but do not manipulate another extension's chat UI.

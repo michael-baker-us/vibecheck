@@ -3,9 +3,11 @@ import { currentPlanTask, planProgress } from "../domain/plans";
 
 export function buildMarkdownReport(state: ObservationState): string {
   const lines = [
-    "# Intent Loop Review",
+    "# VibeCheck Evidence Report",
     "",
-    `- Baseline: \`${state.baselineCommit}\``,
+    `- Current commit: \`${state.baselineCommit}\``,
+    `- Branch: ${state.headBranch ?? "detached HEAD"}`,
+    ...(state.headSubject ? [`- Commit subject: ${state.headSubject}`] : []),
     `- Started: ${state.startedAt}`,
     `- Updated: ${state.lastUpdatedAt}`,
     `- Changed files: ${state.changedFiles.length}`,

@@ -1,4 +1,4 @@
-# Developing Intent Loop
+# Developing VibeCheck
 
 ## Prerequisites
 
@@ -21,19 +21,19 @@ tests against temporary Git repositories and isolated home directories.
 
 1. Open `intent-loop` as the root folder in VS Code.
 2. Open **Run and Debug**.
-3. Select **Run Intent Loop Extension**.
+3. Select **Run VibeCheck Extension**.
 4. Press `F5`.
 5. In the Extension Development Host, open a Git-backed project with at least one commit.
-6. Open the Intent Loop Activity Bar view.
+6. Open the VibeCheck Activity Bar view.
 
 The pre-launch task runs TypeScript in watch mode. Extension runtime output is available in the
-**Intent Loop** Output channel.
+**VibeCheck** Output channel.
 
 ## Package and install
 
 ```bash
 npm run package:vsix
-code --install-extension intent-loop-0.3.0.vsix --force
+code --install-extension vibecheck-0.5.0.vsix --force
 ```
 
 Reload the target VS Code window after installing a new build.
@@ -52,6 +52,7 @@ local agent events ────────┘
 
 - `domain/` contains persisted and analysis-facing types.
 - `collectors/` reads Git and workspace facts.
+- `collectors/agent-file-collector.ts` inventories documented repository agent configuration files.
 - `collectors/plan-collector.ts` discovers and parses repository Markdown plans without editing them.
 - `analyzers/` contains pure deterministic risk logic.
 - `verification/` runs trusted commands and hashes relevant inputs.
@@ -74,6 +75,8 @@ During a real agent task, check:
 - command changes require renewed trust;
 - copied prompts improve the next interaction;
 - pausing and deleting state behave predictably;
-- finishing a clean loop advances the baseline while a dirty tree is rejected;
+- committing advances the monitored `HEAD` automatically without a separate lifecycle action;
+- Source Control remains the only changed-file and diff interface;
+- agent workspace files can be opened or deliberately created from the control center;
 - missing tests, coverage, or security gates are understandable without opening YAML;
 - editor responsiveness remains unaffected while idle.
