@@ -7,6 +7,7 @@ import { AdapterInstaller, SupportedAgent } from "./adapters/adapter-installer";
 import { LocalEventReader } from "./adapters/local-event-reader";
 import { AnalysisEngine } from "./analyzers/analysis-engine";
 import { AgentFileCollector } from "./collectors/agent-file-collector";
+import { AgentUsageCollector } from "./collectors/agent-usage-collector";
 import { GitCollector } from "./collectors/git-collector";
 import { PlanCollector } from "./collectors/plan-collector";
 import { ConfigLoader } from "./config/config-loader";
@@ -33,6 +34,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   const git = new GitCollector();
+  const usageCollector = new AgentUsageCollector();
+  let agentUsage = await usageCollector.collect();
   const adapters = new AdapterInstaller(context.asAbsolutePath("resources/hook-bridge.cjs"));
   const statusBar = new IntentLoopStatusBar();
   const diagnostics = new FindingDiagnostics();
@@ -42,6 +45,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => controller.getConfiguration(),
     () => controller.getConfigurationError(),
     () => controller.getReviewTranscript(),
+    () => agentUsage,
   );
   controller = new ObservationController(
     workspaceFolder,
@@ -77,6 +81,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("intentLoop.start", () => controller.resume()),
     vscode.commands.registerCommand("intentLoop.pause", () => controller.pause()),
     vscode.commands.registerCommand("intentLoop.refresh", () => controller.refresh()),
+    vscode.commands.registerCommand("intentLoop.refreshAgentUsage", async () => {
+      agentUsage = await usageCollector.collect();
+      controlCenter.refresh();
+    }),
     vscode.commands.registerCommand("intentLoop.selectPlan", () => selectPlan(controller)),
     vscode.commands.registerCommand("intentLoop.openPlan", () => openPlan(controller)),
     vscode.commands.registerCommand("intentLoop.inspectFinding", (argument?: Finding) =>
@@ -111,6 +119,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }),
     vscode.commands.registerCommand("intentLoop.runCodeReview", () => runCodeReview(controller)),
+    vscode.commands.registerCommand("intentLoop.clearCodeReview", () => clearCodeReview(controller)),
     vscode.commands.registerCommand("intentLoop.inspectCodeReviewFinding", (findingId?: string) =>
       inspectCodeReviewFinding(controller, findingId),
     ),
@@ -419,6 +428,29 @@ async function inspectCodeReviewFinding(
   const finding = snapshot.state.codeReview?.findings.find((item) => item.id === findingId);
   if (!finding) return;
   await openCodeReviewEvidence(snapshot.state.repositoryRoot, finding);
+}
+
+async function clearCodeReview(controller: ObservationController): Promise<void> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready" || !snapshot.state.codeReview) {
+    void vscode.window.showInformationMessage("There is no code review to clear.");
+    return;
+  }
+  if (snapshot.state.codeReview.status === "running") {
+    void vscode.window.showInformationMessage("Wait for the current code review to finish before clearing it.");
+    return;
+  }
+
+  const choice = await vscode.window.showWarningMessage(
+    "Clear the current code review and its in-memory CLI transcript?",
+    { modal: true },
+    "Clear Review",
+  );
+  if (choice !== "Clear Review") return;
+
+  if (await controller.clearCodeReview()) {
+    void vscode.window.showInformationMessage("Current code review cleared.");
+  }
 }
 
 async function previewCodeReview(controller: ObservationController): Promise<void> {

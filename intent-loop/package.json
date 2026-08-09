@@ -44,6 +44,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "intentLoop.refreshAgentUsage",
+        "title": "Refresh Claude and Codex Usage",
+        "category": "VibeCheck",
+        "icon": "$(pulse)"
+      },
+      {
         "command": "intentLoop.selectPlan",
         "title": "Choose Active Plan Document",
         "category": "VibeCheck",
@@ -72,6 +78,12 @@
         "title": "Run Code Review",
         "category": "VibeCheck",
         "icon": "$(eye)"
+      },
+      {
+        "command": "intentLoop.clearCodeReview",
+        "title": "Clear Current Code Review",
+        "category": "VibeCheck",
+        "icon": "$(clear-all)"
       },
       {
         "command": "intentLoop.inspectCodeReviewFinding",

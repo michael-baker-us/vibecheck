@@ -86,7 +86,7 @@ The Control Center is organized around five focused views:
 
 - **Overview:** release readiness, the next recommended action, current metrics, and evidence export.
 - **Review:** live Codex or Claude activity, elapsed time, structured findings, evidence links,
-  freshness, and a provider-neutral Markdown preview.
+  freshness, a provider-neutral Markdown preview, and rolling seven-day local CLI usage.
 - **Quality:** detailed quality-gate results, structured metrics, timestamps, output, and configuration.
 - **Attention:** unresolved and reviewed findings with explicit review decisions.
 - **Workspace:** the active plan, repository agent capabilities, adapters, and local monitoring data.
@@ -97,7 +97,9 @@ while checks run or repository state changes.
 ## Agent workspace capabilities
 
 The control center monitors documented repository surfaces rather than private transcripts or
-machine-wide configuration:
+machine-wide configuration. Its usage section reads only aggregate Claude statistics and Codex
+token-count/rate-limit events from the providers' local caches; it never reads prompt or response
+content:
 
 - Codex: layered `AGENTS.md` files, `.agents/skills/**/SKILL.md`, `.codex/config.toml`,
   `.codex/hooks.json`, `.codex/rules/*.rules`, `.codex/agents/*.toml`, and Codex plugin manifests

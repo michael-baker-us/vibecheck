@@ -298,6 +298,19 @@ export class ObservationController implements vscode.Disposable {
     }
   }
 
+  public async clearCodeReview(): Promise<boolean> {
+    if (this.snapshot.kind !== "ready" || !this.snapshot.state.codeReview) return false;
+    if (this.snapshot.state.codeReview.status === "running") return false;
+
+    this.reviewTranscript = [];
+    await this.mutateState((state) => {
+      const { codeReview: _codeReview, ...withoutCodeReview } = state;
+      return withoutCodeReview;
+    });
+    this.output.appendLine("Current code review cleared.");
+    return true;
+  }
+
   private appendReviewTranscript(entry: Omit<CodeReviewTranscriptEntry, "at">): void {
     const previous = this.reviewTranscript.at(-1);
     if (previous?.kind === entry.kind && previous.label === entry.label && previous.content === entry.content) {

@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 
+import { AgentUsageSnapshot } from "../collectors/agent-usage-collector";
 import { IntentLoopConfiguration } from "../domain/configuration";
 import { categoryFor, calculateReadiness, missingRecommendedCategories } from "../domain/quality-gates";
 import { ObservationSnapshot } from "../domain/observation-state";
@@ -14,6 +15,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     private readonly getConfiguration: () => IntentLoopConfiguration,
     private readonly getConfigurationError: () => string | undefined,
     private readonly getReviewTranscript: () => Array<{ at: string; kind: string; label: string; content?: string }>,
+    private readonly getAgentUsage: () => AgentUsageSnapshot,
   ) {}
 
   public resolveWebviewView(view: vscode.WebviewView): void {
@@ -50,6 +52,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           ),
           configurationError: this.getConfigurationError(),
           reviewTranscript: this.getReviewTranscript(),
+          agentUsage: this.getAgentUsage(),
         }
       : snapshot;
     void this.view.webview.postMessage({ type: "state", payload });
@@ -62,10 +65,12 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       "select-plan": "intentLoop.selectPlan",
       "open-plan": "intentLoop.openPlan",
       refresh: "intentLoop.refresh",
+      "refresh-usage": "intentLoop.refreshAgentUsage",
       pause: "intentLoop.pause",
       resume: "intentLoop.start",
       "run-all": "intentLoop.runAllVerification",
       "run-review": "intentLoop.runCodeReview",
+      "clear-review": "intentLoop.clearCodeReview",
       "preview-review": "intentLoop.previewCodeReview",
       "check-output-menu": "intentLoop.showVerificationOutput",
       "copy-prompt": "intentLoop.copyPrompt",
@@ -258,6 +263,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
   const button = (label,action,id,kind='secondary') => { const node=el('button','btn small '+kind,label); node.onclick=()=>send(action,id); return node; };
   const section = (title,count) => { const card=el('section','card'); const head=el('div','section-head'); head.append(el('h2','',title),el('span','',String(count))); const content=el('div','content'); card.append(head,content); return {card,content}; };
   const percent = value => Number(value).toFixed(2)+'%';
+  const compactNumber = value => new Intl.NumberFormat(undefined,{notation:'compact',maximumFractionDigits:1}).format(value);
   const signed = value => (value>0?'+':'')+Number(value).toFixed(2)+' pp';
   const summaryText = summary => { if(!summary)return 'No structured metrics available'; if(summary.kind==='tests')return summary.passed+'/'+summary.total+' passed · '+summary.failed+' failed'+(summary.skipped?' · '+summary.skipped+' skipped':''); if(summary.kind==='coverage')return percent(summary.lines)+' lines'+(summary.change?' · '+signed(summary.change):''); const movement=(summary.newIssues?summary.newIssues+' new':'')+(summary.newIssues&&summary.fixedIssues?' · ':'')+(summary.fixedIssues?summary.fixedIssues+' fixed':''); return summary.total+' vulnerabilities'+(movement?' · '+movement:''); };
   const metric = (label,value,detail,tone='neutral') => { const node=el('div','metric'); node.append(el('div','metric-label',label),el('div','metric-value '+tone,value),el('div','metric-detail',detail)); return node; };
@@ -315,7 +321,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       const overview=el('div','item'); overview.append(head,reviewMeta);
       if(reviewState.summary) overview.append(el('p','',reviewState.summary));
       if(reviewState.error) overview.append(el('div','callout danger',reviewState.error));
-      const reviewActions=el('div','item-actions'),rerun=button(reviewState.status==='running'?'Review running…':'Run another review','run-review',undefined,reviewState.status==='running'?'secondary':'primary'); rerun.disabled=reviewState.status==='running'; reviewActions.append(rerun); if(reviewState.status!=='running')reviewActions.append(button('Open Markdown preview','preview-review',undefined,'ghost')); overview.append(reviewActions);
+      const reviewActions=el('div','item-actions'),rerun=button(reviewState.status==='running'?'Review running…':'Run another review','run-review',undefined,reviewState.status==='running'?'secondary':'primary'); rerun.disabled=reviewState.status==='running'; reviewActions.append(rerun); if(reviewState.status!=='running')reviewActions.append(button('Open Markdown preview','preview-review',undefined,'ghost'),button('Clear review','clear-review',undefined,'ghost')); overview.append(reviewActions);
       review.content.append(overview);
       const transcript=data.reviewTranscript||[]; if(transcript.length){ const terminal=el('div','review-terminal'),terminalHead=el('div','review-terminal-head'); terminalHead.append(el('strong','',reviewState.status==='running'?'Live CLI review':'CLI review transcript'),el('span','',reviewState.status==='running'?'streaming · memory only':'memory only')); terminal.append(terminalHead); transcript.forEach(entry=>{ const row=el('div','review-terminal-entry '+entry.kind),meta=el('div','review-terminal-meta'); meta.append(el('span','review-terminal-kind',entry.kind),el('time','',new Date(entry.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})),el('strong','',entry.label)); row.append(meta); if(entry.content)row.append(el('pre','',entry.content)); terminal.append(row); }); review.content.append(terminal); requestAnimationFrame(()=>{ terminal.scrollTop=terminal.scrollHeight; }); }
       if(!transcript.length&&reviewState.activity&&reviewState.activity.length){ const preview=el('div','review-preview'),previewHead=el('div','review-preview-head'); if(reviewState.status==='running')previewHead.append(el('i','review-pulse')); previewHead.append(el('span','',reviewState.status==='running'?'Review activity':'Activity summary')); const activity=el('ol','review-activity'); reviewState.activity.slice(-8).forEach(entry=>{ const row=el('li'),time=el('time','',new Date(entry.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})),copy=el('span'); copy.append(el('strong','',entry.label)); if(entry.detail)copy.append(document.createTextNode(' · '+entry.detail)); row.append(time,copy); activity.append(row); }); preview.append(previewHead,activity); review.content.append(preview); }
@@ -324,6 +330,11 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       reviewState.findings.forEach(f=>{ const item=el('div','item'),h=el('div','item-head'); h.append(el('span','item-title',f.title),el('span','badge '+(f.severity==='high'?'blocked':f.severity==='medium'?'incomplete':'neutral'),f.severity)); item.append(h,el('div','meta',(f.path||'Repository-level')+(f.line?':'+f.line:'')),el('p','',f.explanation)); if(f.path){ const a=el('div','item-actions'); a.append(button('Inspect','inspect-review',f.id,'secondary')); item.append(a); } review.content.append(item); });
     }
     pages.review.append(review.card);
+
+    const usage=section('Claude & Codex usage','rolling '+data.agentUsage.periodDays+' days');
+    usage.content.append(el('div','section-intro','Local CLI metadata only. Prompt and response content is never read or retained.'));
+    [['codex','Codex'],['claude','Claude']].forEach(([key,label])=>{ const provider=data.agentUsage[key],item=el('div','item'),head=el('div','item-head'); head.append(el('span','item-title',label),el('span','badge '+(provider.available?'ready':'neutral'),provider.available?'available':'no data')); item.append(head); if(provider.available){ const metrics=el('div','metrics'); metrics.append(metric('7-day tokens',compactNumber(provider.tokens),provider.tokens.toLocaleString()+' local tokens'),metric('Today',compactNumber(provider.todayTokens),provider.todayTokens.toLocaleString()+' local tokens'),metric('Sessions',String(provider.sessions),'in the rolling window')); if(provider.rateLimit)metrics.append(metric('Current limit',Number(provider.rateLimit.usedPercent).toFixed(0)+'%',provider.rateLimit.resetsAt?'resets '+new Date(provider.rateLimit.resetsAt).toLocaleString():'provider-reported window',provider.rateLimit.usedPercent>=90?'blocked':provider.rateLimit.usedPercent>=70?'incomplete':'ready')); item.append(metrics); if(provider.lastActivityAt)item.append(el('div','meta','Last activity '+new Date(provider.lastActivityAt.length===10?provider.lastActivityAt+'T00:00:00':provider.lastActivityAt).toLocaleString())); } if(provider.detail)item.append(el('div','callout',provider.detail)); usage.content.append(item); });
+    const usageFooter=el('div','item-actions'); usageFooter.append(button('Refresh usage','refresh-usage',undefined,'secondary')); usage.content.append(usageFooter,el('div','meta','Collected '+new Date(data.agentUsage.collectedAt).toLocaleString()+' · Claude account limits remain available through /usage in Claude Code.')); pages.review.append(usage.card);
 
     const gates=section('Quality gates',s.verification.length);
     pages.quality.append(el('div','section-intro','Run, inspect, and compare repository-owned checks. Passing evidence becomes stale when relevant inputs change.'));
