@@ -1,13 +1,27 @@
-# Repository Instructions
+# VibeCheck Repository Guidance
 
-## Architecture
+## Scope and architecture
 
-<!-- Add durable project boundaries and conventions. -->
+- This repository contains the VibeCheck VS Code extension in `vibecheck/`; run project commands from the repository root with `npm --prefix vibecheck ...`.
+- VibeCheck provides local engineering confidence for AI-assisted coding. Preserve its local-first boundary: no hosted backend, telemetry pipeline, required network connection, or agent proxying.
+- Keep repository content, findings, verification output, and reports local. Codex or Claude may process repository content only for an explicit user-selected review or change-summary action.
+- Keep prompt text, assistant messages, transcripts, tool arguments, tool output, and provider credentials out of persistent extension state. The optional hook bridge must retain only bounded lifecycle metadata.
+- Maintain the module boundaries: `domain/` holds persisted and analysis-facing types; `collectors/` reads workspace and Git facts; `analyzers/` contains deterministic risk logic; `verification/` runs trusted commands and tracks freshness; `ui/` renders VS Code surfaces. Do not make `src/ui/` import directly from `collectors/`, `config/`, or `verification/`; keep `domain/` independent of adapters, analyzers, collectors, config, UI, and verification.
+- Keep analysis deterministic and pure where practical. Provider-backed semantic reviews are explicit, read-only, and must validate structured evidence before it reaches workspace state.
 
-## Verification
+## Development and verification
 
-<!-- Add the commands both Claude and Codex should run before considering work complete. -->
+- Use Node.js 22 or later, npm, VS Code, and Git.
+- Run `npm --prefix vibecheck run check` for strict TypeScript type checking.
+- Run `npm --prefix vibecheck run test` for the compiled Node test suite. Tests execute against `dist/`, so changes to extension behavior should include or update the corresponding `vibecheck/test/*.test.cjs` coverage.
+- Run `npm --prefix vibecheck run coverage` when changing covered core behavior; it enforces the configured coverage thresholds.
+- Run `npm --prefix vibecheck run security` when dependency manifests change, and run `npm --prefix vibecheck run verify` before considering a change complete.
+- Use `npm --prefix vibecheck run package:vsix` to create the VSIX. It runs verification and writes the package under `vibecheck/packages/`.
+- For manual extension testing, open `vibecheck/` as the VS Code workspace and launch the `Run VibeCheck Extension` configuration (`F5`); the pre-launch task starts the TypeScript and esbuild watchers.
 
-## Working Agreement
+## Repository conventions
 
-<!-- Add repository-specific workflows, constraints, and review expectations. -->
+- Treat `.vibecheck/config.yaml` and `.vibecheck/rules.yaml` as the repository's configured quality gates and architecture boundaries. Keep their commands and invalidation paths aligned with relevant source, test, resource, and manifest changes.
+- Preserve the explicit trust boundary around verification commands: commands are user-configured and individually trusted, rather than inferred and run automatically.
+- Preserve the native VS Code workflow: VibeCheck observes and reports repository state but does not stage, commit, or replace VS Code's source-control and diff experience.
+- Preserve the reviewed Agent Workspace workflow: instruction and supporting-file generation is read-only until an explicit apply action, validates allowed paths and structured content, rejects stale proposals, and backs up replaced files outside the repository.
