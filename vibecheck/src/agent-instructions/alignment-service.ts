@@ -41,41 +41,13 @@ export type SafeAlignmentSummary = {
   reviewRequired: number;
 };
 
-export type AgentWorkspaceInitializationResult = SafeAlignmentSummary & {
-  agentsCreated: boolean;
-  claudeCreated: boolean;
-};
-
 export type SkillAlignmentResult = { backupPath?: string; targetPath: string };
 
 const SHARED_IMPORT = "@AGENTS.md";
-const AGENTS_SCAFFOLD = `# Repository Instructions
-
-## Architecture
-
-<!-- Add durable project boundaries and conventions. -->
-
-## Verification
-
-<!-- Add the commands both Claude and Codex should run before considering work complete. -->
-
-## Working Agreement
-
-<!-- Add repository-specific workflows, constraints, and review expectations. -->
-`;
 
 export class AgentInstructionAlignmentService {
   public emptySnapshot(): AgentAlignmentSnapshot {
     return { items: [], driftCount: 0, updatedAt: new Date(0).toISOString() };
-  }
-
-  public async initialize(repositoryRoot: string): Promise<AgentWorkspaceInitializationResult> {
-    const agentsPath = path.join(repositoryRoot, "AGENTS.md");
-    const claudePath = path.join(repositoryRoot, "CLAUDE.md");
-    const agentsCreated = !await this.exists(agentsPath);
-    const claudeCreated = !await this.exists(claudePath);
-    if (agentsCreated) await writeFile(agentsPath, AGENTS_SCAFFOLD, "utf8");
-    return { ...await this.alignSafe(repositoryRoot), agentsCreated, claudeCreated };
   }
 
   public async align(repositoryRoot: string): Promise<AgentInstructionAlignmentResult> {

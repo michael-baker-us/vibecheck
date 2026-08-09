@@ -22,6 +22,8 @@ test("discovers standard Codex and Claude repository files without reading their
   assert.equal(result.find((file) => file.path === "CLAUDE.md").exists, false);
   assert.equal(result.find((file) => file.path === "src/AGENTS.override.md").owner, "codex");
   assert.equal(result.find((file) => file.path === ".claude/rules/testing.md").kind, "rules");
+  assert.equal(result.some((file) => file.path === ".codex/agents/reviewer.toml"), false);
+  assert.equal(result.some((file) => file.path === ".claude/commands/example.md"), false);
 });
 
 test("inventories repository capabilities supported by Codex and Claude", async (context) => {

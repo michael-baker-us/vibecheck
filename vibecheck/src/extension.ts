@@ -17,7 +17,7 @@ import { ConfigurationSetupService } from "./config/configuration-setup-service"
 import { CodeReviewFinding, CodeReviewSelection } from "./domain/code-review";
 import { ChangeSummaryRange, ChangeSummarySession } from "./domain/change-summary";
 import { ConfigurationSetupSession } from "./domain/configuration-setup";
-import { InstructionFilePath, InstructionRefreshProposal, InstructionRefreshSession } from "./domain/instruction-refresh";
+import { InstructionFilePath, InstructionRefreshProposal, InstructionRefreshScope, InstructionRefreshSession } from "./domain/instruction-refresh";
 import { Finding } from "./domain/findings";
 import { ObservationController } from "./observation-controller";
 import { buildFollowUpPrompt } from "./prompts/follow-up-builder";
@@ -196,35 +196,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("vibecheck.manageAgentFile", (relativePath?: string) =>
       manageAgentFile(controller, relativePath),
     ),
-    vscode.commands.registerCommand("vibecheck.initializeAgentWorkspace", async () => {
-      const snapshot = controller.getSnapshot();
-      if (snapshot.kind !== "ready") return;
-      try {
-        const result = await alignmentService.initialize(snapshot.state.repositoryRoot);
-        await vscode.workspace.getConfiguration("vibecheck", workspaceFolder.uri).update(
-          "alignAgentWorkspace",
-          true,
-          vscode.ConfigurationTarget.Workspace,
-        );
-        await controller.refresh();
-        await refreshAgentAlignment();
-        const created = [result.agentsCreated ? "AGENTS.md" : "", result.claudeCreated ? "CLAUDE.md" : ""].filter(Boolean);
-        void vscode.window.showInformationMessage(
-          created.length
-            ? `Initialized Claude and Codex workspace files: ${created.join(" and ")}. Continuous safe alignment is enabled.`
-            : "Claude and Codex workspace files already exist and are structurally aligned; their guidance was not regenerated. Use Update from repository to audit their contents.",
-        );
-      } catch (error) {
-        void vscode.window.showErrorMessage(`Could not initialize the Claude and Codex workspace: ${String(error)}`);
-      }
-    }),
+    vscode.commands.registerCommand("vibecheck.generateAgentInstructions", () =>
+      refreshAgentInstructions(controller, instructionRefreshService, instructionPreviewProvider, "instructions", (session, proposal) => {
+        instructionRefreshSession = session;
+        instructionRefreshProposal = proposal;
+        controlCenter.refresh();
+      })),
     vscode.commands.registerCommand("vibecheck.clearAgentWorkspace", async () => {
       const snapshot = controller.getSnapshot();
       if (snapshot.kind !== "ready") return;
-      const files = snapshot.state.agentFiles
+      const knownFiles = snapshot.state.agentFiles
         .filter((file) => file.exists && (file.owner === "codex" || file.owner === "claude"))
-        .map((file) => file.path)
-        .sort();
+        .map((file) => file.path);
+      const files = await agentWorkspaceResetService.discover(snapshot.state.repositoryRoot, knownFiles);
       if (!files.length) {
         void vscode.window.showInformationMessage("No Codex or Claude repository workspace files are present.");
         return;
@@ -259,7 +243,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }),
     vscode.commands.registerCommand("vibecheck.refreshAgentInstructions", () =>
-      refreshAgentInstructions(controller, instructionRefreshService, instructionPreviewProvider, (session, proposal) => {
+      refreshAgentInstructions(controller, instructionRefreshService, instructionPreviewProvider, "supporting", (session, proposal) => {
         instructionRefreshSession = session;
         instructionRefreshProposal = proposal;
         controlCenter.refresh();
@@ -449,7 +433,7 @@ async function manageAgentFile(
   const snapshot = controller.getSnapshot();
   if (snapshot.kind !== "ready" || !relativePath) return;
   const definition = snapshot.state.agentFiles.find((file) => file.path === relativePath);
-  if (!definition) return;
+  if (!definition?.exists) return;
   if (relativePath === ".vibecheck/config.yaml") {
     await openConfiguration(controller);
     return;
@@ -458,20 +442,6 @@ async function manageAgentFile(
   const absolutePath = path.resolve(snapshot.state.repositoryRoot, relativePath);
   const relative = path.relative(snapshot.state.repositoryRoot, absolutePath);
   if (relative.startsWith("..") || path.isAbsolute(relative)) return;
-  if (!definition.exists) {
-    const choice = await vscode.window.showInformationMessage(
-      `Create ${relativePath}?`,
-      { modal: true, detail: definition.description },
-      "Create File",
-    );
-    if (choice !== "Create File") return;
-    await mkdir(path.dirname(absolutePath), { recursive: true });
-    await writeFile(absolutePath, agentFileTemplate(relativePath, snapshot.state.agentFiles.some((file) => file.path === "AGENTS.md" && file.exists)), "utf8");
-    if (definition.localOnly) {
-      void vscode.window.showInformationMessage(`${relativePath} is personal. Confirm it is covered by this repository's .gitignore.`);
-    }
-    await controller.refresh();
-  }
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(absolutePath));
 }
 
@@ -498,64 +468,6 @@ async function alignAgentWorkspace(
   } catch (error) {
     void vscode.window.showErrorMessage(`Could not align Claude and Codex guidance: ${String(error)}`);
   }
-}
-
-function agentFileTemplate(relativePath: string, hasAgentsFile: boolean): string {
-  if (relativePath === "AGENTS.md") {
-    return "# Repository Instructions\n\n## Verification\n\n<!-- Add the commands Codex should run before considering work complete. -->\n\n## Architecture\n\n<!-- Add durable project boundaries and conventions. -->\n";
-  }
-  if (relativePath === "CLAUDE.md") {
-    return `${hasAgentsFile ? "@AGENTS.md\n\n" : ""}# Claude Code\n\n<!-- Add only Claude-specific project guidance here. -->\n`;
-  }
-  if (relativePath === "CLAUDE.local.md") {
-    return "# Local Claude Code Instructions\n\n<!-- Personal project guidance. Keep this file out of version control. -->\n";
-  }
-  if (relativePath === ".codex/config.toml") {
-    return "# Project-scoped Codex settings. Codex loads this file only for trusted projects.\n# MCP servers and lifecycle hooks can also be configured here.\n";
-  }
-  if (relativePath === ".codex/hooks.json") {
-    return "{\n  \"description\": \"Project lifecycle hooks\",\n  \"hooks\": {}\n}\n";
-  }
-  if (relativePath === ".codex/rules/default.rules") {
-    return "# Project command policy. Add reviewed prefix_rule(...) entries here.\n";
-  }
-  if (relativePath === ".codex/agents/reviewer.toml") {
-    return "name = \"reviewer\"\ndescription = \"Reviews changes for correctness, risk, and missing verification.\"\ndeveloper_instructions = \"Inspect the requested change and report concrete, evidence-backed findings.\"\n";
-  }
-  if (relativePath === ".agents/skills/repository-workflow/SKILL.md") {
-    return "---\nname: repository-workflow\ndescription: Follow this repository's repeatable engineering workflow.\n---\n\n# Repository workflow\n\n<!-- Add focused steps, expected inputs, verification, and output requirements. -->\n";
-  }
-  if (relativePath === ".codex-plugin/plugin.json") {
-    return "{\n  \"name\": \"repository-plugin\",\n  \"version\": \"0.1.0\",\n  \"description\": \"Repository Codex plugin\"\n}\n";
-  }
-  if (relativePath === ".claude/settings.json" || relativePath === ".claude/settings.local.json") {
-    return "{}\n";
-  }
-  if (relativePath === ".claude/rules/project.md") {
-    return "---\npaths:\n  - \"**/*\"\n---\n\n# Project rule\n\n<!-- Add focused Claude Code guidance. Narrow the paths when appropriate. -->\n";
-  }
-  if (relativePath === ".claude/skills/repository-workflow/SKILL.md") {
-    return "---\nname: repository-workflow\ndescription: Follow this repository's repeatable engineering workflow.\n---\n\n# Repository workflow\n\n<!-- Add focused steps, expected inputs, verification, and output requirements. -->\n";
-  }
-  if (relativePath === ".claude/commands/example.md") {
-    return "---\ndescription: Example legacy command; prefer a skill for new reusable workflows.\n---\n\n<!-- Add the reusable prompt. -->\n";
-  }
-  if (relativePath === ".claude/agents/reviewer.md") {
-    return "---\nname: reviewer\ndescription: Reviews changes for correctness, risk, and missing verification.\ntools: Read, Grep, Glob\n---\n\nInspect the requested change and report concrete, evidence-backed findings.\n";
-  }
-  if (relativePath === ".claude/output-styles/project.md") {
-    return "---\nname: Project\ndescription: Project-specific response style.\nkeep-coding-instructions: true\n---\n\n<!-- Describe the desired response format and tone. -->\n";
-  }
-  if (relativePath === ".mcp.json") {
-    return "{\n  \"mcpServers\": {}\n}\n";
-  }
-  if (relativePath === ".claude-plugin/plugin.json") {
-    return "{\n  \"name\": \"repository-plugin\",\n  \"version\": \"0.1.0\",\n  \"description\": \"Repository Claude Code plugin\"\n}\n";
-  }
-  if (relativePath === ".vibecheck/rules.yaml") {
-    return "# Deterministic repository boundaries.\nboundaries: []\n";
-  }
-  return "";
 }
 
 async function inspectFinding(controller: ObservationController, finding: Finding): Promise<void> {
@@ -1199,6 +1111,7 @@ async function refreshAgentInstructions(
   controller: ObservationController,
   service: InstructionRefreshService,
   previewProvider: InstructionPreviewProvider,
+  scope: InstructionRefreshScope,
   onSessionChanged: (session: InstructionRefreshSession, proposal?: InstructionRefreshProposal) => void,
 ): Promise<void> {
   const snapshot = controller.getSnapshot();
@@ -1207,10 +1120,15 @@ async function refreshAgentInstructions(
     void vscode.window.showWarningMessage("Trust this VS Code workspace before invoking an instruction provider.");
     return;
   }
-  const choice = await chooseProviderModel("Choose model to generate supporting Claude and Codex files", "instructions");
+  const instructionFiles = scope === "instructions";
+  const choice = await chooseProviderModel(
+    instructionFiles ? "Choose model to generate AGENTS.md and CLAUDE.md" : "Choose model to generate supporting Claude and Codex files",
+    "instructions",
+  );
   if (!choice) return;
   const startedAt = new Date().toISOString();
   let session: InstructionRefreshSession = {
+    scope,
     provider: choice.provider,
     profile: choice.profile,
     model: choice.model,
@@ -1234,7 +1152,7 @@ async function refreshAgentInstructions(
     const proposal = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `VibeCheck: Generating supporting workspace files with ${choice.label}`,
+        title: `VibeCheck: Generating ${instructionFiles ? "instruction" : "supporting workspace"} files with ${choice.label}`,
         cancellable: true,
       },
       async (progress, token) => {
@@ -1243,7 +1161,7 @@ async function refreshAgentInstructions(
         return service.propose(
           choice,
           snapshot.state.repositoryRoot,
-          buildInstructionRefreshPrompt("supporting"),
+          buildInstructionRefreshPrompt(scope),
           abort.signal,
           (event) => progress.report({ message: event.detail ? `${event.label} · ${event.detail}` : event.label }),
           (entry) => {
@@ -1251,7 +1169,7 @@ async function refreshAgentInstructions(
             if (previous?.kind === entry.kind && previous.label === entry.label && previous.content === entry.content) return;
             updateSession({ transcript: [...session.transcript, { ...entry, at: new Date().toISOString() }].slice(-100) });
           },
-          "supporting",
+          scope,
         );
       },
     );
@@ -1265,9 +1183,13 @@ async function refreshAgentInstructions(
     const firstChanged = proposal.files.find((file) => file.status !== "unchanged");
     if (firstChanged) {
       await previewAgentInstruction(previewProvider, proposal);
-      void vscode.window.showInformationMessage("Agent Workspace proposal is ready. Review the file diffs before applying all changes.");
+      void vscode.window.showInformationMessage(`${instructionFiles ? "Instruction" : "Supporting-file"} proposal is ready. Review the file diffs before applying all changes.`);
     } else {
-      void vscode.window.showInformationMessage("The existing Claude and Codex workspace files already match the repository evidence.");
+      void vscode.window.showInformationMessage(
+        instructionFiles
+          ? "The existing instruction files already match the repository evidence."
+          : "The selected provider found no justified supporting workspace changes.",
+      );
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

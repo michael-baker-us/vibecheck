@@ -11,6 +11,7 @@ import {
   InstructionRefreshApplyResult,
   InstructionRefreshFileProposal,
   InstructionRefreshProposal,
+  InstructionRefreshScope,
 } from "../domain/instruction-refresh";
 import { normalizeReviewTranscriptEvent } from "../reviews/code-review-service";
 
@@ -24,17 +25,17 @@ const FIXED_FILES = new Set<string>([
   ".codex/config.toml",
   ".codex/hooks.json",
   ".mcp.json",
-  ".codex-plugin/plugin.json",
   ".claude/settings.json",
-  ".claude-plugin/plugin.json",
 ]);
 const GENERATED_PATH_PATTERNS = [
   /^\.codex\/rules\/[a-z0-9][a-z0-9._-]*\.rules$/,
   /^\.codex\/agents\/[a-z0-9][a-z0-9._-]*\.toml$/,
   /^\.agents\/skills\/[a-z0-9][a-z0-9._-]*\/SKILL\.md$/,
+  /^\.agents\/skills\/[a-z0-9][a-z0-9._-]*\/(?:scripts|references|assets|agents)\/(?:[a-z0-9][a-z0-9._-]*\/)*[a-z0-9][a-z0-9._-]*$/i,
   /^\.claude\/rules\/[a-z0-9][a-z0-9._-]*\.md$/,
   /^\.claude\/agents\/[a-z0-9][a-z0-9._-]*\.md$/,
   /^\.claude\/skills\/[a-z0-9][a-z0-9._-]*\/SKILL\.md$/,
+  /^\.claude\/skills\/[a-z0-9][a-z0-9._-]*\/(?:scripts|references|assets|agents)\/(?:[a-z0-9][a-z0-9._-]*\/)*[a-z0-9][a-z0-9._-]*$/i,
   /^\.claude\/output-styles\/[a-z0-9][a-z0-9._-]*\.md$/,
 ] as const;
 
@@ -63,7 +64,6 @@ const RESPONSE_SCHEMA = {
 } as const;
 
 export type InstructionRefreshProgress = { label: string; detail?: string };
-export type InstructionRefreshScope = "complete" | "supporting";
 export type InstructionRefreshRunner = (
   selection: CodeReviewSelection,
   repositoryRoot: string,
@@ -83,7 +83,7 @@ export class InstructionRefreshService {
     signal?: AbortSignal,
     onProgress?: (progress: InstructionRefreshProgress) => void,
     onTranscript?: (entry: Omit<CodeReviewTranscriptEntry, "at">) => void,
-    scope: InstructionRefreshScope = "complete",
+    scope: InstructionRefreshScope = "instructions",
   ): Promise<InstructionRefreshProposal> {
     const parsed = parseInstructionRefreshOutput(await this.runner(
       selection,
@@ -138,7 +138,7 @@ export class InstructionRefreshService {
   }
 }
 
-export function parseInstructionRefreshOutput(output: string, scope: InstructionRefreshScope = "complete"): {
+export function parseInstructionRefreshOutput(output: string, scope: InstructionRefreshScope = "instructions"): {
   summary: string;
   files: Array<{ path: InstructionFilePath; content: string; rationale: string }>;
 } {
@@ -173,7 +173,7 @@ export function parseInstructionRefreshOutput(output: string, scope: Instruction
     if (!rationale) throw new Error(`The provider gave no rationale for ${candidate.path}.`);
     return { path: candidate.path, content, rationale };
   });
-  if (scope === "complete") {
+  if (scope === "instructions") {
     for (const required of REQUIRED_FILES) {
       if (!seen.has(required)) throw new Error(`The provider proposal is missing required ${required}.`);
     }
@@ -181,8 +181,11 @@ export function parseInstructionRefreshOutput(output: string, scope: Instruction
     if (!/^\uFEFF?[ \t]*@AGENTS\.md[ \t]*(?:\n|$)/.test(claudeMarkdown)) {
       throw new Error("The proposed CLAUDE.md does not begin by importing canonical @AGENTS.md guidance.");
     }
+    if (files.some((file) => !REQUIRED_FILES.includes(file.path as typeof REQUIRED_FILES[number]))) {
+      throw new Error("Instruction-file proposals may contain only AGENTS.md and CLAUDE.md; generate supporting files separately.");
+    }
   } else if (files.some((file) => REQUIRED_FILES.includes(file.path as typeof REQUIRED_FILES[number]))) {
-    throw new Error("Supporting-file proposals must not include AGENTS.md or CLAUDE.md; initialize instructions separately.");
+    throw new Error("Supporting-file proposals must not include AGENTS.md or CLAUDE.md; generate instruction files separately.");
   }
   validatePortableSkillPairs(files);
   const totalBytes = files.reduce((total, file) => total + Buffer.byteLength(file.content, "utf8"), 0);
@@ -404,14 +407,14 @@ function validatePortableSkillPairs(
 ): void {
   const byPath = new Map(files.map((file) => [file.path, file.content]));
   for (const file of files) {
-    const match = /^(?:\.agents|\.claude)\/skills\/([^/]+)\/SKILL\.md$/.exec(file.path);
+    const match = /^(?:\.agents|\.claude)\/skills\/([^/]+)\/(.+)$/.exec(file.path);
     if (!match) continue;
     const other = file.path.startsWith(".agents/")
-      ? `.claude/skills/${match[1]}/SKILL.md`
-      : `.agents/skills/${match[1]}/SKILL.md`;
+      ? `.claude/skills/${match[1]}/${match[2]}`
+      : `.agents/skills/${match[1]}/${match[2]}`;
     const otherContent = byPath.get(other as InstructionFilePath);
-    if (otherContent === undefined) throw new Error(`Portable skill '${match[1]}' must be proposed for both Claude and Codex.`);
-    if (otherContent !== file.content) throw new Error(`Portable skill '${match[1]}' must have identical Claude and Codex content.`);
+    if (otherContent === undefined) throw new Error(`Portable skill '${match[1]}' and all of its files must be proposed for both Claude and Codex.`);
+    if (otherContent !== file.content) throw new Error(`Portable skill '${match[1]}' must have identical Claude and Codex files.`);
   }
 }
 

@@ -65,7 +65,7 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /Agent-assisted setup and updates/);
   assert.match(source, /Live CLI configuration/);
   assert.match(source, /configurationSetupSession/);
-  assert.match(source, /Initialize instructions/);
+  assert.match(source, /Generate instruction files/);
   assert.match(source, /Generate supporting files/);
   assert.match(source, /Clear agent workspace/);
   assert.match(source, /Apply all proposed files/);
@@ -74,13 +74,14 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /instructionRefreshSession/);
   assert.doesNotMatch(source, /product-bar|brand-mark|brand-context/);
   assert.doesNotMatch(source, /button\('Refresh','refresh'/);
+  assert.doesNotMatch(source, /f\.exists\?'Open':'Create'/);
 
   for (const action of [
     "select-plan", "open-plan", "refresh", "refresh-provider-usage", "pause", "resume",
     "run-all", "run-review", "clear-review", "preview-review", "summarize-changes",
     "check-output-menu", "copy-prompt", "export", "config", "setup-prompt", "install-codex",
     "install-claude", "remove-adapter", "delete", "start", "manage-agent-file",
-    "initialize-agent-workspace", "refresh-agent-instructions", "preview-agent-workspace", "preview-agent-instruction",
+    "generate-agent-instructions", "refresh-agent-instructions", "preview-agent-workspace", "preview-agent-instruction",
     "apply-agent-instructions", "discard-agent-instructions", "align-agent-instructions",
     "set-agent-alignment", "resolve-agent-alignment", "clear-agent-workspace",
     "inspect-review", "inspect-finding", "accept-finding", "dismiss-finding",

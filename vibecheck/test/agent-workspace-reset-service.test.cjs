@@ -14,18 +14,28 @@ test("backs up and removes the selected Agent Workspace files", async (context) 
     rmSync(backups, { recursive: true, force: true });
   });
   mkdirSync(join(root, ".agents", "skills", "review"), { recursive: true });
+  mkdirSync(join(root, ".claude", "skills", "review", "references"), { recursive: true });
   mkdirSync(join(root, ".vibecheck"), { recursive: true });
   writeFileSync(join(root, "AGENTS.md"), "# Shared guidance\n");
   writeFileSync(join(root, ".agents", "skills", "review", "SKILL.md"), "# Review skill\n");
+  writeFileSync(join(root, ".claude", "skills", "review", "references", "workflow.md"), "# Workflow\n");
   writeFileSync(join(root, ".vibecheck", "config.yaml"), "plans: {}\n");
 
-  const result = await new AgentWorkspaceResetService().reset(
+  const service = new AgentWorkspaceResetService();
+  const files = await service.discover(root, ["AGENTS.md", ".agents/skills/review/SKILL.md", "AGENTS.md", "CLAUDE.md"]);
+  assert.ok(files.includes(".claude/skills/review/references/workflow.md"));
+  assert.equal(files.some((file) => file.startsWith(".vibecheck/")), false);
+  const result = await service.reset(
     root,
-    ["AGENTS.md", ".agents/skills/review/SKILL.md", "AGENTS.md", "CLAUDE.md"],
+    files,
     backups,
   );
 
-  assert.deepEqual(result.removedFiles, [".agents/skills/review/SKILL.md", "AGENTS.md"]);
+  assert.deepEqual(result.removedFiles, [
+    ".agents/skills/review/SKILL.md",
+    ".claude/skills/review/references/workflow.md",
+    "AGENTS.md",
+  ]);
   assert.equal(existsSync(join(root, "AGENTS.md")), false);
   assert.equal(existsSync(join(root, ".agents", "skills", "review", "SKILL.md")), false);
   assert.equal(readFileSync(join(result.backupDirectory, "AGENTS.md"), "utf8"), "# Shared guidance\n");

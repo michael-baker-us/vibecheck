@@ -109,12 +109,12 @@ The control center monitors documented repository surfaces rather than private t
 machine-wide configuration. Its usage section invokes the providers' canonical `/status` and
 `/usage` interfaces, normalizes only utilization/reset fields, and keeps the snapshot in memory:
 
-- Codex: layered `AGENTS.md` files, `.agents/skills/**/SKILL.md`, `.codex/config.toml`,
+- Codex: layered `AGENTS.md` files, `.agents/skills/**`, `.codex/config.toml`,
   `.codex/hooks.json`, `.codex/rules/*.rules`, `.codex/agents/*.toml`, and Codex plugin manifests
-  and hooks. Codex custom prompts are deprecated and user-scoped, so new reusable repository
+  and hooks. Codex has no repository-scoped custom-prompt file surface, so reusable repository
   workflows are represented as skills.
-- Claude: layered `CLAUDE.md` files, `.claude/rules/**/*.md`, `.claude/skills/**/SKILL.md`, legacy
-  `.claude/commands/**/*.md`, `.claude/agents/*.md`, `.claude/settings*.json`, `.mcp.json`,
+- Claude: layered `CLAUDE.md` files, `.claude/rules/**/*.md`, `.claude/skills/**`, compatible legacy
+  `.claude/commands/**/*.md`, `.claude/agents/**/*.md`, `.claude/settings*.json`, `.mcp.json`,
   `.claude/output-styles/*.md`, and Claude plugin manifests and hooks.
 - VibeCheck: `.vibecheck/config.yaml`, `.vibecheck/rules.yaml`, and the active Markdown plan.
 
@@ -140,14 +140,15 @@ The Agent Workspace panel shows every compatibility surface, its drift state, an
 has the newer copy. This makes provider switching quick while keeping deliberate provider-specific
 configuration intact.
 
-For new or reset repositories, **Initialize instructions** creates the core `AGENTS.md` / `CLAUDE.md`
-pair deterministically. **Generate supporting files** then lets you choose a Balanced or Deep
-Claude/Codex model; the provider scans the repository read-only and proposes justified skills,
-project settings, rules, subagents, hooks, MCP configuration, output styles, and plugin manifests.
-The supporting-file workflow deliberately excludes the two core instruction files. Existing
-per-file **Create** actions remain available when only one known file should be rebuilt. Personal
-files, credentials, deprecated Claude commands, invented hook scripts, and unrelated files are
-excluded from provider generation.
+For new or reset repositories, **Generate instruction files** lets you choose a Balanced or Deep
+Claude/Codex model. The selected CLI scans the repository read-only and proposes complete,
+evidence-backed `AGENTS.md` and `CLAUDE.md` contents; VibeCheck does not seed generic templates.
+**Generate supporting files** performs a separate review and may propose skills with supporting text
+files, project settings, rules, subagents, hooks, MCP configuration, or output styles when repository
+evidence justifies them. It may also return no files. The supporting workflow excludes the two core
+instruction files, personal files, credentials, legacy Claude commands, plugin packaging, invented
+hook scripts, and unrelated files. The capability tabs list existing files only rather than
+advertising opinionated placeholder names.
 
 VibeCheck shows one managed CLI transcript, the complete proposed file list with rationales, and
 native side-by-side diffs through **Preview all changes**. **Apply all proposed files** is the only
@@ -159,9 +160,10 @@ supported; filesystem watching aligns safe changes and surfaces provider-specifi
 review.
 
 **Clear agent workspace** disables continuous alignment, backs up every discovered Codex- and
-Claude-owned repository workspace file outside the repository, and then removes those files. The
-active Markdown plan and VibeCheck-owned `.vibecheck/*` configuration are preserved, allowing core
-instructions, individual files, or the supporting-file set to be regenerated independently.
+Claude-owned repository workspace file outside the repository—including supporting files under
+`.agents/`, `.codex/`, and `.claude/`—and then removes those files. The active Markdown plan and
+VibeCheck-owned `.vibecheck/*` configuration are preserved, allowing core
+instructions or the supporting-file set to be regenerated independently.
 
 ## Configuration
 

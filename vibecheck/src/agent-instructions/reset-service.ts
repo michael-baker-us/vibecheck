@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 
 export type AgentWorkspaceResetResult = {
@@ -7,6 +7,14 @@ export type AgentWorkspaceResetResult = {
 };
 
 export class AgentWorkspaceResetService {
+  public async discover(repositoryRoot: string, knownPaths: string[]): Promise<string[]> {
+    const paths = new Set(knownPaths);
+    for (const directory of [".agents", ".codex", ".claude"]) {
+      await this.collectDirectory(repositoryRoot, directory, paths);
+    }
+    return [...paths].sort();
+  }
+
   public async reset(
     repositoryRoot: string,
     relativePaths: string[],
@@ -53,5 +61,20 @@ export class AgentWorkspaceResetService {
       throw new Error(`Invalid Agent Workspace path: ${relativePath}`);
     }
     return absolutePath;
+  }
+
+  private async collectDirectory(repositoryRoot: string, relativeDirectory: string, paths: Set<string>): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(path.join(repositoryRoot, relativeDirectory), { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    for (const entry of entries) {
+      const relativePath = path.join(relativeDirectory, entry.name);
+      if (entry.isDirectory()) await this.collectDirectory(repositoryRoot, relativePath, paths);
+      else if (entry.isFile()) paths.add(relativePath);
+    }
   }
 }

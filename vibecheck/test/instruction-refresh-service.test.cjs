@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const test = require("node:test");
@@ -29,6 +29,8 @@ const workspaceOutput = (overrides = {}) => ({
   ...overrides,
 });
 
+const supportingOutput = (files = []) => ({ summary: "Updated supporting files.", files });
+
 test("runs instruction generation in read-only structured-output mode", () => {
   const codex = codexInstructionRefreshArguments(selection, "/tmp/schema.json", "/tmp/result.json", "audit");
   assert.ok(codex.includes("read-only"));
@@ -43,13 +45,16 @@ test("runs instruction generation in read-only structured-output mode", () => {
 });
 
 test("prompt establishes the supported Agent Workspace catalog and prohibits writes", () => {
-  const prompt = buildInstructionRefreshPrompt();
-  assert.match(prompt, /AGENTS\.md.*provider-neutral and canonical/s);
-  assert.match(prompt, /CLAUDE\.md.*@AGENTS\.md/s);
-  assert.match(prompt, /Do not edit, create, delete, rename/);
-  assert.match(prompt, /\.codex\/agents\/<name>\.toml/);
-  assert.match(prompt, /\.claude\/rules\/<name>\.md/);
-  assert.match(prompt, /do not create optional files merely because they are available/i);
+  const instructions = buildInstructionRefreshPrompt("instructions");
+  const supporting = buildInstructionRefreshPrompt("supporting");
+  assert.match(instructions, /AGENTS\.md.*provider-neutral and canonical/s);
+  assert.match(instructions, /CLAUDE\.md.*@AGENTS\.md/s);
+  assert.match(instructions, /do not start from generic templates/i);
+  assert.match(supporting, /\.codex\/agents\/<name>\.toml/);
+  assert.match(supporting, /\.claude\/rules\/<name>\.md/);
+  assert.match(supporting, /scripts.*references.*assets.*agents/s);
+  assert.match(supporting, /Do not edit, create, delete, rename/);
+  assert.match(supporting, /do not create optional files merely because they are supported/i);
 });
 
 test("supporting-file generation excludes core instructions and allows no optional files", () => {
@@ -59,7 +64,7 @@ test("supporting-file generation excludes core instructions and allows no option
     summary: "No supporting files are justified.",
     files: [],
   }), "supporting").files, []);
-  assert.throws(() => parseInstructionRefreshOutput(JSON.stringify(workspaceOutput()), "supporting"), /initialize instructions separately/);
+  assert.throws(() => parseInstructionRefreshOutput(JSON.stringify(workspaceOutput()), "supporting"), /generate instruction files separately/);
 });
 
 test("parses direct and Claude-wrapped proposals and enforces the shared import", () => {
@@ -92,42 +97,39 @@ test("parses direct and Claude-wrapped proposals and enforces the shared import"
 });
 
 test("accepts native provider files and rejects unsupported or unsafe paths", () => {
-  const parsed = parseInstructionRefreshOutput(JSON.stringify(workspaceOutput({
-    files: [
-      ...workspaceOutput().files,
+  const parsed = parseInstructionRefreshOutput(JSON.stringify(supportingOutput([
       { path: ".codex/agents/reviewer.toml", content: 'name = "reviewer"\ndescription = "Review changes"\ndeveloper_instructions = "Report defects"\n', rationale: "The repository has a review workflow." },
       { path: ".claude/agents/reviewer.md", content: "---\nname: reviewer\ndescription: Review changes\n---\n\nReport defects.\n", rationale: "Claude needs the same specialized role." },
       { path: ".claude/settings.json", content: "{\"permissions\": {}}", rationale: "Project settings are explicitly documented." },
-    ],
-  })));
-  assert.equal(parsed.files.length, 5);
-  assert.throws(() => parseInstructionRefreshOutput(JSON.stringify(workspaceOutput({
-    files: [...workspaceOutput().files, { path: ".claude/settings.local.json", content: "{}", rationale: "Local." }],
-  }))), /unsupported Agent Workspace file/);
-  assert.throws(() => parseInstructionRefreshOutput(JSON.stringify(workspaceOutput({
-    files: [...workspaceOutput().files, { path: ".mcp.json", content: '{"token":"literal-secret"}', rationale: "MCP." }],
-  }))), /appears to embed a credential/);
-  assert.throws(() => parseInstructionRefreshOutput(JSON.stringify(workspaceOutput({
-    files: [...workspaceOutput().files, { path: ".claude/settings.json", content: "{invalid", rationale: "Settings." }],
-  }))), /not valid JSON/);
-  assert.throws(() => parseInstructionRefreshOutput(JSON.stringify(workspaceOutput({
-    files: [...workspaceOutput().files, { path: ".codex/config.toml", content: "[invalid", rationale: "Settings." }],
-  }))), /not valid TOML/);
+  ])), "supporting");
+  assert.equal(parsed.files.length, 3);
+  assert.throws(() => parseInstructionRefreshOutput(JSON.stringify(supportingOutput([
+    { path: ".claude/settings.local.json", content: "{}", rationale: "Local." },
+  ])), "supporting"), /unsupported Agent Workspace file/);
+  assert.throws(() => parseInstructionRefreshOutput(JSON.stringify(supportingOutput([
+    { path: ".mcp.json", content: '{"token":"literal-secret"}', rationale: "MCP." },
+  ])), "supporting"), /appears to embed a credential/);
+  assert.throws(() => parseInstructionRefreshOutput(JSON.stringify(supportingOutput([
+    { path: ".claude/settings.json", content: "{invalid", rationale: "Settings." },
+  ])), "supporting"), /not valid JSON/);
+  assert.throws(() => parseInstructionRefreshOutput(JSON.stringify(supportingOutput([
+    { path: ".codex/config.toml", content: "[invalid", rationale: "Settings." },
+  ])), "supporting"), /not valid TOML/);
 });
 
 test("requires portable skills to be identical Claude and Codex pairs", () => {
   const skill = "---\nname: repository-workflow\ndescription: Run repository checks.\n---\n\nRun the documented checks.\n";
-  const paired = parseInstructionRefreshOutput(JSON.stringify(workspaceOutput({
-    files: [
-      ...workspaceOutput().files,
+  const script = "#!/bin/sh\nnpm test\n";
+  const paired = parseInstructionRefreshOutput(JSON.stringify(supportingOutput([
       { path: ".agents/skills/repository-workflow/SKILL.md", content: skill, rationale: "Reusable workflow." },
       { path: ".claude/skills/repository-workflow/SKILL.md", content: skill, rationale: "Portable mirror." },
-    ],
-  })));
+      { path: ".agents/skills/repository-workflow/scripts/check.sh", content: script, rationale: "Reusable verification helper." },
+      { path: ".claude/skills/repository-workflow/scripts/check.sh", content: script, rationale: "Portable helper mirror." },
+  ])), "supporting");
   assert.equal(paired.files.length, 4);
-  assert.throws(() => parseInstructionRefreshOutput(JSON.stringify(workspaceOutput({
-    files: [...workspaceOutput().files, { path: ".agents/skills/repository-workflow/SKILL.md", content: skill, rationale: "Reusable workflow." }],
-  }))), /must be proposed for both/);
+  assert.throws(() => parseInstructionRefreshOutput(JSON.stringify(supportingOutput([
+    { path: ".agents/skills/repository-workflow/SKILL.md", content: skill, rationale: "Reusable workflow." },
+  ])), "supporting"), /must be proposed for both/);
 });
 
 test("builds a proposal without writing, then applies with backups", async (context) => {
@@ -137,36 +139,31 @@ test("builds a proposal without writing, then applies with backups", async (cont
     rmSync(root, { recursive: true, force: true });
     rmSync(backups, { recursive: true, force: true });
   });
-  writeFileSync(join(root, "AGENTS.md"), "# Old instructions\n");
-  writeFileSync(join(root, "CLAUDE.md"), "@AGENTS.md\n\n# Old Claude\n");
+  writeFileSync(join(root, "AGENTS.md"), "# Existing instructions\n");
+  writeFileSync(join(root, "CLAUDE.md"), "@AGENTS.md\n");
+  mkdirSync(join(root, ".codex"), { recursive: true });
+  writeFileSync(join(root, ".codex", "config.toml"), "[agents]\nmax_concurrent_threads_per_session = 2\n");
   const runner = async (_selection, _root, _prompt, _signal, onProgress, onTranscript) => {
     onProgress?.({ label: "Inspecting repository evidence" });
     onTranscript?.({ kind: "status", label: "Instruction audit started" });
     return JSON.stringify({
       summary: "Refreshed current workflows.",
-      files: [
-        { path: "AGENTS.md", content: "# Current instructions\n", rationale: "Current commands." },
-        { path: "CLAUDE.md", content: "@AGENTS.md\n\n# Current Claude\n", rationale: "Claude import." },
-        { path: ".codex/config.toml", content: "[agents]\nmax_concurrent_threads_per_session = 4\n", rationale: "Repository uses parallel review." },
-      ],
+      files: [{ path: ".codex/config.toml", content: "[agents]\nmax_concurrent_threads_per_session = 4\n", rationale: "Repository uses parallel review." }],
     });
   };
   const service = new InstructionRefreshService(runner);
-  const proposal = await service.propose(selection, root, "audit");
+  const proposal = await service.propose(selection, root, "audit", undefined, undefined, undefined, "supporting");
 
-  assert.equal(readFileSync(join(root, "AGENTS.md"), "utf8"), "# Old instructions\n");
+  assert.equal(readFileSync(join(root, "AGENTS.md"), "utf8"), "# Existing instructions\n");
   assert.deepEqual(proposal.files.map(({ path, status }) => ({ path, status })), [
-    { path: "AGENTS.md", status: "modified" },
-    { path: "CLAUDE.md", status: "modified" },
-    { path: ".codex/config.toml", status: "created" },
+    { path: ".codex/config.toml", status: "modified" },
   ]);
 
   const result = await service.apply(root, proposal, backups);
-  assert.deepEqual(result.changedFiles, ["AGENTS.md", "CLAUDE.md", ".codex/config.toml"]);
-  assert.equal(readFileSync(join(root, "AGENTS.md"), "utf8"), "# Current instructions\n");
-  assert.match(readFileSync(join(root, ".codex", "config.toml"), "utf8"), /max_concurrent_threads/);
-  assert.ok(result.backupDirectory && existsSync(join(result.backupDirectory, "AGENTS.md")));
-  assert.equal(readFileSync(join(result.backupDirectory, "CLAUDE.md"), "utf8"), "@AGENTS.md\n\n# Old Claude\n");
+  assert.deepEqual(result.changedFiles, [".codex/config.toml"]);
+  assert.match(readFileSync(join(root, ".codex", "config.toml"), "utf8"), /max_concurrent_threads_per_session = 4/);
+  assert.ok(result.backupDirectory && existsSync(join(result.backupDirectory, ".codex", "config.toml")));
+  assert.match(readFileSync(join(result.backupDirectory, ".codex", "config.toml"), "utf8"), /max_concurrent_threads_per_session = 2/);
 });
 
 test("rejects a stale preview before writing either file", async (context) => {

@@ -157,12 +157,18 @@
       },
       {
         "command": "vibecheck.manageAgentFile",
-        "title": "Open or Create Agent Workspace File",
+        "title": "Open Agent Workspace File",
         "category": "VibeCheck"
       },
       {
+        "command": "vibecheck.generateAgentInstructions",
+        "title": "Generate Claude and Codex Instruction Files",
+        "category": "VibeCheck",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "vibecheck.refreshAgentInstructions",
-        "title": "Generate Claude and Codex Workspace",
+        "title": "Generate Claude and Codex Supporting Files",
         "category": "VibeCheck",
         "icon": "$(sparkle)"
       },
@@ -273,14 +279,19 @@
           "group": "3_configuration@1"
         },
         {
-          "command": "vibecheck.refreshAgentInstructions",
+          "command": "vibecheck.generateAgentInstructions",
           "when": "view == vibecheck.overview",
           "group": "3_configuration@2"
         },
         {
-          "command": "vibecheck.alignAgentInstructions",
+          "command": "vibecheck.refreshAgentInstructions",
           "when": "view == vibecheck.overview",
           "group": "3_configuration@3"
+        },
+        {
+          "command": "vibecheck.alignAgentInstructions",
+          "when": "view == vibecheck.overview",
+          "group": "3_configuration@4"
         }
       ]
     },

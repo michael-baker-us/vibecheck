@@ -1,20 +1,22 @@
 import { CodeReviewSelection, CodeReviewTranscriptEntry } from "./code-review";
 
+export type InstructionRefreshScope = "instructions" | "supporting";
+
 export type InstructionFilePath =
   | "AGENTS.md"
   | "CLAUDE.md"
   | ".codex/config.toml"
   | ".codex/hooks.json"
   | ".mcp.json"
-  | ".codex-plugin/plugin.json"
   | ".claude/settings.json"
-  | ".claude-plugin/plugin.json"
   | `.codex/rules/${string}.rules`
   | `.codex/agents/${string}.toml`
   | `.agents/skills/${string}/SKILL.md`
+  | `.agents/skills/${string}/${"scripts" | "references" | "assets" | "agents"}/${string}`
   | `.claude/rules/${string}.md`
   | `.claude/agents/${string}.md`
   | `.claude/skills/${string}/SKILL.md`
+  | `.claude/skills/${string}/${"scripts" | "references" | "assets" | "agents"}/${string}`
   | `.claude/output-styles/${string}.md`;
 
 export type InstructionRefreshFilePreview = {
@@ -24,6 +26,7 @@ export type InstructionRefreshFilePreview = {
 };
 
 export type InstructionRefreshSession = CodeReviewSelection & {
+  scope: InstructionRefreshScope;
   status: "running" | "preview" | "applied" | "discarded" | "failed";
   startedAt: string;
   finishedAt?: string;
