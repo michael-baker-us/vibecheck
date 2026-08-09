@@ -41,15 +41,17 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /summary\.section-head/);
   assert.match(source, /Claude ↔ Codex compatibility/);
   assert.match(source, /Continuously align safe, portable files in this workspace/);
-  assert.match(source, /gpt-5\.6-terra/);
-  assert.match(source, /claude-opus-5/);
+  assert.match(source, /Model routing/);
+  assert.match(source, /Save model routes/);
+  assert.match(source, /set-model-routing/);
+  assert.match(source, /Configure with Claude or Codex/);
 
   for (const action of [
     "select-plan", "open-plan", "refresh", "refresh-provider-usage", "pause", "resume",
     "run-all", "run-review", "clear-review", "preview-review", "summarize-changes",
-    "check-output-menu", "copy-prompt", "export", "config", "install-codex",
+    "check-output-menu", "copy-prompt", "export", "config", "setup-prompt", "install-codex",
     "install-claude", "remove-adapter", "delete", "start", "manage-agent-file",
-    "align-agent-instructions", "set-agent-alignment", "resolve-agent-alignment",
+    "initialize-agent-workspace", "align-agent-instructions", "set-agent-alignment", "resolve-agent-alignment",
     "inspect-review", "inspect-finding", "accept-finding", "dismiss-finding",
     "reopen-finding", "prompt-finding", "run-check", "check-output",
   ]) {

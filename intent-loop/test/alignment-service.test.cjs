@@ -42,6 +42,19 @@ test("does not create provider files without canonical AGENTS guidance", async (
   );
 });
 
+test("initializes both provider instruction files without replacing Claude guidance", async (context) => {
+  const root = mkdtempSync(join(tmpdir(), "vibecheck-alignment-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(root, "CLAUDE.md"), "# Claude-only guidance\n");
+
+  const result = await new AgentInstructionAlignmentService().initialize(root);
+
+  assert.equal(result.agentsCreated, true);
+  assert.equal(result.claudeCreated, false);
+  assert.match(readFileSync(join(root, "AGENTS.md"), "utf8"), /# Repository Instructions/);
+  assert.equal(readFileSync(join(root, "CLAUDE.md"), "utf8"), "@AGENTS.md\n\n# Claude-only guidance\n");
+});
+
 test("copies one-sided open-standard skills and reports divergent copies", async (context) => {
   const root = mkdtempSync(join(tmpdir(), "vibecheck-alignment-"));
   context.after(() => rmSync(root, { recursive: true, force: true }));

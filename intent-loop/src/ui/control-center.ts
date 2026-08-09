@@ -6,6 +6,7 @@ import { AgentAlignmentSnapshot } from "../agent-instructions/alignment-service"
 import { categoryFor, calculateReadiness, missingRecommendedCategories } from "../domain/quality-gates";
 import { ObservationSnapshot } from "../domain/observation-state";
 import { ProviderUsageSnapshot } from "../usage/provider-usage-service";
+import { DEFAULT_MODEL_ROUTING, MODEL_ROUTING_SETTINGS, normalizeModelRouting } from "../providers/model-routing";
 
 type WebviewMessage = { action?: unknown; id?: unknown; options?: unknown };
 
@@ -59,6 +60,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           changeSummarySession: this.getChangeSummarySession(),
           providerUsage: this.getProviderUsage(),
           agentAlignment: this.getAgentAlignment(),
+          modelRouting: readModelRouting(),
           alignAgentWorkspace: vscode.workspace.getConfiguration(
             "intentLoop",
             vscode.workspace.workspaceFolders?.[0]?.uri,
@@ -82,6 +84,10 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       await vscode.commands.executeCommand("intentLoop.resolveAgentAlignment", message.id);
       return;
     }
+    if (message.action === "set-model-routing") {
+      await vscode.commands.executeCommand("intentLoop.setModelRouting", message.options);
+      return;
+    }
     const id = typeof message.id === "string" ? message.id : undefined;
     const simpleCommands: Record<string, string> = {
       "select-plan": "intentLoop.selectPlan",
@@ -99,9 +105,11 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       "copy-prompt": "intentLoop.copyPrompt",
       export: "intentLoop.createReport",
       config: "intentLoop.openConfig",
+      "setup-prompt": "intentLoop.createSetupPrompt",
       "install-codex": "intentLoop.installCodexAdapter",
       "install-claude": "intentLoop.installClaudeAdapter",
       "remove-adapter": "intentLoop.uninstallAgentAdapter",
+      "initialize-agent-workspace": "intentLoop.initializeAgentWorkspace",
       "align-agent-instructions": "intentLoop.alignAgentInstructions",
       delete: "intentLoop.deleteData",
       start: "intentLoop.start",
@@ -368,7 +376,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     pages.review.append(el('div','section-intro','Ask Codex or Claude to review the current uncommitted diff for concrete, actionable defects.'));
     const review=section('Code review',s.codeReview?s.codeReview.findings.length:'not run','review:code-review',true);
     const reviewState=s.codeReview;
-      if(!reviewState){ const c=el('div','callout'); c.append(el('strong','','No semantic review yet'),el('p','','Balanced: Codex gpt-5.6-terra or Claude claude-sonnet-5 at medium effort.'),el('p','','Deep: Codex gpt-5.6-sol or Claude claude-opus-5 at high effort.')); review.content.append(c,button('Choose model and run review','run-review',undefined,'primary')); }
+      if(!reviewState){ const c=el('div','callout'),routes=data.modelRouting; c.append(el('strong','','No semantic review yet'),el('p','','Balanced: Codex '+routes.codexBalanced+' or Claude '+routes.claudeBalanced+' at medium effort.'),el('p','','Deep: Codex '+routes.codexDeep+' or Claude '+routes.claudeDeep+' at high effort.')); review.content.append(c,button('Choose model and run review','run-review',undefined,'primary')); }
     else {
       const tone=reviewState.status==='completed'?'ready':reviewState.status==='failed'?'blocked':'incomplete';
       const head=el('div','item-head'); head.append(el('span','item-title',(reviewState.provider==='codex'?'Codex':'Claude')+' · '+reviewState.profile+' review'),el('span','badge '+tone,reviewState.status));
@@ -386,6 +394,9 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       reviewState.findings.forEach(f=>{ const item=el('div','item'),h=el('div','item-head'); h.append(el('span','item-title',f.title),el('span','badge '+(f.severity==='high'?'blocked':f.severity==='medium'?'incomplete':'neutral'),f.severity)); item.append(h,el('div','meta',(f.path||'Repository-level')+(f.line?':'+f.line:'')),el('p','',f.explanation)); if(f.path){ const a=el('div','item-actions'); a.append(button('Inspect','inspect-review',f.id,'secondary')); item.append(a); } review.content.append(item); });
     }
     pages.review.append(review.card);
+    const routing=data.modelRouting,modelRoutes=section('Model routing','Balanced + Deep','tools:model-routing',false),routingIntro=el('div','section-intro','Choose the exact provider model used by both semantic reviews and change summaries. Effort stays profile-based: Balanced uses medium; Deep uses high.'),routingForm=el('div','form-grid');
+    const routeFields={}; [['codexBalanced','Codex · Balanced'],['codexDeep','Codex · Deep'],['claudeBalanced','Claude · Balanced'],['claudeDeep','Claude · Deep']].forEach(([key,label])=>{ const field=el('label','form-field'),caption=el('span','',label),input=el('input',''); input.type='text'; input.value=routing[key]; input.dataset.routeKey=key; input.dataset.focusKey='model-route:'+key; input.spellcheck=false; field.append(caption,input); routingForm.append(field); routeFields[key]=input; });
+    const saveRoutes=button('Save model routes','',undefined,'primary'); saveRoutes.onclick=()=>vscode.postMessage({action:'set-model-routing',options:Object.fromEntries(Object.entries(routeFields).map(([key,input])=>[key,input.value]))}); routingForm.append(saveRoutes); modelRoutes.content.append(routingIntro,routingForm); pages.tools.append(modelRoutes.card);
     pages.tools.append(el('div','eyebrow','Change communication'),el('div','section-intro','Create a plain-language Markdown summary for working-tree, branch, or revision changes.'));
     const changeSummary=section('Change summary','Markdown','tools:change-summary',true);
     const summaryCallout=el('div','callout'); summaryCallout.append(el('strong','','Plain-language merge summary'),el('p','',s.changedFiles.length+' uncommitted file change'+(s.changedFiles.length===1?' is':'s are')+' available. Choose exactly what should be compared.'));
@@ -396,7 +407,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     const fetchField=el('label','check-field'),fetchLatest=el('input',''); fetchLatest.type='checkbox'; fetchLatest.dataset.focusKey='summary:fetch'; fetchLatest.checked=savedSummary.fetchLatest===true; fetchField.append(fetchLatest,el('span','','Fetch the latest target branch from its remote before comparing'));
     const remoteField=el('label','form-field'),remoteLabel=el('span','','Remote'),remote=el('input',''); remote.type='text'; remote.dataset.focusKey='summary:remote'; remote.value=savedSummary.remote||'origin'; remote.placeholder='origin'; remoteField.append(remoteLabel,remote);
     const modelField=el('label','form-field'),modelLabel=el('span','','Provider and model'),model=el('select','');
-    model.dataset.focusKey='summary:model'; [['codex-balanced','Codex · gpt-5.6-terra · medium effort (Recommended)'],['codex-deep','Codex · gpt-5.6-sol · high effort'],['claude-balanced','Claude · claude-sonnet-5 · medium effort (Recommended)'],['claude-deep','Claude · claude-opus-5 · high effort']].forEach(([value,label])=>{ const option=el('option','',label); option.value=value; model.append(option); }); model.value=savedSummary.model||'codex-balanced'; modelField.append(modelLabel,model);
+    model.dataset.focusKey='summary:model'; [['codex-balanced','Codex · '+routing.codexBalanced+' · medium effort (Recommended)'],['codex-deep','Codex · '+routing.codexDeep+' · high effort'],['claude-balanced','Claude · '+routing.claudeBalanced+' · medium effort (Recommended)'],['claude-deep','Claude · '+routing.claudeDeep+' · high effort']].forEach(([value,label])=>{ const option=el('option','',label); option.value=value; model.append(option); }); model.value=savedSummary.model||'codex-balanced'; modelField.append(modelLabel,model);
     const summaryOptions=()=>({mode:mode.value,source:source.value,target:target.value,fetchLatest:fetchLatest.checked,remote:remote.value,model:model.value});
     const saveSummaryOptions=()=>vscode.setState({...vscode.getState(),summaryOptions:summaryOptions()});
     const updateSummaryForm=()=>{ const working=mode.value==='working-tree',branches=mode.value==='branches'; sourceField.hidden=working; targetField.hidden=working; fetchField.hidden=!branches; remoteField.hidden=!branches||!fetchLatest.checked; sourceLabel.textContent=branches?'Source branch':'From commit or ref'; targetLabel.textContent=branches?'Target branch':'To commit or ref'; source.placeholder=branches?'feature/my-change':'older commit hash or ref'; target.placeholder=branches?'main':'newer commit hash or ref'; };
@@ -421,7 +432,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     gates.content.append(qualityMetrics());
     if(!s.verification.length) gates.content.append(el('div','empty','No checks configured yet. Add tests, coverage, and security checks.'));
     s.verification.forEach(v=>{ const item=el('div','item'), head=el('div','item-head'), title=el('div','row'); title.append(el('i','dot '+v.status),el('span','item-title',v.name)); head.append(title,el('span','badge '+(v.status==='passed'?'ready':v.status==='failed'?'blocked':'incomplete'),v.status)); item.append(head,el('div','meta',(data.categories[v.name]||'other')+(v.required===false?' · optional':' · required')+(v.finishedAt?' · '+new Date(v.finishedAt).toLocaleString():'')+(v.durationMs!==undefined?' · '+(v.durationMs/1000).toFixed(1)+'s':''))); if(v.summary)item.append(el('div','callout',summaryText(v.summary))); const a=el('div','item-actions'); a.append(button(v.status==='running'?'Running…':'Run','run-check',v.name),button('Output','check-output',v.name,'ghost')); item.append(a); gates.content.append(item); });
-    gates.content.append(button('Open quality-gate configuration','config',undefined,'ghost')); pages.quality.append(gates.card);
+    const gateActions=el('div','item-actions'); gateActions.append(button('Configure with Claude or Codex','setup-prompt'),button('Open configuration','config',undefined,'ghost')); gates.content.append(gateActions); pages.quality.append(gates.card);
 
     const attention=section('Needs attention',open.length,'status:attention',open.length>0);
     pages.status.append(el('div','eyebrow','Findings'),el('div','section-intro','Review high-signal findings, record intentional changes, and keep the readiness decision explainable.'));
@@ -444,7 +455,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     alignmentHead.append(el('span','item-title','Claude ↔ Codex compatibility'),el('span','badge '+(alignmentDrift?'incomplete':'ready'),alignmentDrift?alignmentDrift+' need review':'aligned'));
     alignment.append(alignmentHead,el('p','','VibeCheck shares provider-neutral plans, imports canonical AGENTS.md guidance into CLAUDE.md, and mirrors one-sided open-standard skills. Provider-specific schemas are flagged with the newer side instead of being overwritten.'));
     const alignmentToggle=el('label','check-field'),alignmentCheckbox=el('input',''); alignmentCheckbox.type='checkbox'; alignmentCheckbox.checked=data.alignAgentWorkspace===true; alignmentCheckbox.dataset.focusKey='agents:alignment'; alignmentCheckbox.onchange=()=>vscode.postMessage({action:'set-agent-alignment',options:alignmentCheckbox.checked}); alignmentToggle.append(alignmentCheckbox,el('span','','Continuously align safe, portable files in this workspace'));
-    const alignmentActions=el('div','item-actions'); alignmentActions.append(button('Align safe changes now','align-agent-instructions',undefined,'secondary')); alignment.append(alignmentToggle,alignmentActions);
+    const alignmentActions=el('div','item-actions'); alignmentActions.append(button('Initialize both','initialize-agent-workspace'),button('Align safe changes now','align-agent-instructions',undefined,'secondary')); alignment.append(alignmentToggle,alignmentActions);
     const alignmentItems=(data.agentAlignment?.items||[]).filter(item=>item.status!=='not-configured');
     alignmentItems.forEach(entry=>{ const row=el('div','callout'),head=el('div','item-head'),tone=entry.status==='aligned'||entry.status==='shared'?'ready':entry.status==='conflict'?'blocked':'incomplete'; head.append(el('strong','',entry.label),el('span','badge '+tone,entry.status)); row.append(head,el('div','meta',entry.surface+(entry.newer?' · '+entry.newer+' changed more recently':'')),el('p','',entry.detail)); const actions=el('div','item-actions'); if(entry.codexPath&&/\.[^/]+$/.test(entry.codexPath))actions.append(button('Open Codex file','manage-agent-file',entry.codexPath,'ghost')); if(entry.claudePath&&entry.claudePath!==entry.codexPath&&/\.[^/]+$/.test(entry.claudePath))actions.append(button('Open Claude file','manage-agent-file',entry.claudePath,'ghost')); if(entry.surface==='skills'&&entry.status==='conflict'){ actions.append(button('Use Codex version','resolve-agent-alignment',entry.id+'|codex','ghost'),button('Use Claude version','resolve-agent-alignment',entry.id+'|claude','ghost')); } if(actions.childElementCount)row.append(actions); alignment.append(row); });
     agents.content.append(alignment);
@@ -476,4 +487,14 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
 function createNonce(): string {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   return Array.from({ length: 32 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+}
+
+function readModelRouting() {
+  const configuration = vscode.workspace.getConfiguration("intentLoop", vscode.workspace.workspaceFolders?.[0]?.uri);
+  return normalizeModelRouting({
+    codexBalanced: configuration.get<string>(MODEL_ROUTING_SETTINGS.codexBalanced, DEFAULT_MODEL_ROUTING.codexBalanced),
+    codexDeep: configuration.get<string>(MODEL_ROUTING_SETTINGS.codexDeep, DEFAULT_MODEL_ROUTING.codexDeep),
+    claudeBalanced: configuration.get<string>(MODEL_ROUTING_SETTINGS.claudeBalanced, DEFAULT_MODEL_ROUTING.claudeBalanced),
+    claudeDeep: configuration.get<string>(MODEL_ROUTING_SETTINGS.claudeDeep, DEFAULT_MODEL_ROUTING.claudeDeep),
+  });
 }

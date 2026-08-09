@@ -32,8 +32,9 @@ monitor the agent.
 - Creates concise, plain-language Markdown summaries for uncommitted changes, source-to-target branch
   comparisons, or any two Git commits or refs. Branch comparisons can fetch the latest target from a
   selected remote without checking out or pulling into the target branch.
-- Makes model routing explicit before every review: Balanced uses `gpt-5.6-terra` or
-  `claude-sonnet-5` at medium effort; Deep uses `gpt-5.6-sol` or `claude-opus-5` at high effort.
+- Makes model routing explicit before every review. The exact Codex and Claude models for Balanced
+  and Deep profiles are workspace-configurable and shared by reviews and change summaries. Balanced
+  uses medium effort; Deep uses high effort.
 - Streams a terminal-style, memory-only transcript into the Review view while the CLI is running,
   including assistant messages, tool calls, commands, and bounded tool output. Completed Codex and
   Claude results use the same concise Markdown report format.
@@ -94,7 +95,7 @@ The Control Center is organized around four workflow-focused views:
   freshness, and a provider-neutral Markdown preview.
 - **Quality:** detailed quality-gate results, structured metrics, timestamps, output, and configuration.
 - **Tools:** change summaries, Codex and Claude account-limit snapshots, the active plan, repository
-  agent capabilities, adapters, and local monitoring controls.
+  agent capabilities, editable Balanced/Deep model routes, adapters, and local monitoring controls.
 
 The selected view and agent-workspace tab persist across refreshes, keeping the interface stable
 while checks run or repository state changes.
@@ -136,9 +137,22 @@ The Agent Workspace panel shows every compatibility surface, its drift state, an
 has the newer copy. This makes provider switching quick while keeping deliberate provider-specific
 configuration intact.
 
+For a new repository, run **VibeCheck: Initialize Claude and Codex Workspace** (or select
+**Initialize both** in Agent Workspace). It creates a provider-neutral `AGENTS.md` scaffold when
+needed, creates or updates `CLAUDE.md` to import it, preserves existing Claude-specific guidance,
+and enables continuous safe alignment. Native Codex and Claude `/init` remain supported: filesystem
+watching aligns safe changes and surfaces provider-specific additions for review.
+
 ## Configuration
 
 Run **VibeCheck: Open Local Configuration** or create `.intent-loop/config.yaml`:
+
+For agent-assisted setup, run **VibeCheck: Create Claude or Codex Setup Prompt** or select
+**Configure with Claude or Codex** under Quality. VibeCheck copies and previews a provider-neutral,
+schema-bounded prompt that asks the agent to inspect repository scripts, CI, tests, coverage,
+security tooling, plans, and architecture before adding or updating configuration. The prompt limits
+edits to `.intent-loop/config.yaml` and evidence-backed `.intent-loop/rules.yaml`; it does not let the
+agent invent scripts, install dependencies, or change application code.
 
 ```yaml
 plans:

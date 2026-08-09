@@ -144,6 +144,12 @@
         "icon": "$(settings-gear)"
       },
       {
+        "command": "intentLoop.createSetupPrompt",
+        "title": "Create Claude or Codex Setup Prompt",
+        "category": "VibeCheck",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "intentLoop.createReport",
         "title": "Create Evidence Report",
         "category": "VibeCheck",
@@ -153,6 +159,12 @@
         "command": "intentLoop.manageAgentFile",
         "title": "Open or Create Agent Workspace File",
         "category": "VibeCheck"
+      },
+      {
+        "command": "intentLoop.initializeAgentWorkspace",
+        "title": "Initialize Claude and Codex Workspace",
+        "category": "VibeCheck",
+        "icon": "$(wand)"
       },
       {
         "command": "intentLoop.alignAgentInstructions",
@@ -237,9 +249,14 @@
           "group": "3_configuration@1"
         },
         {
-          "command": "intentLoop.alignAgentInstructions",
+          "command": "intentLoop.initializeAgentWorkspace",
           "when": "view == intentLoop.overview",
           "group": "3_configuration@2"
+        },
+        {
+          "command": "intentLoop.alignAgentInstructions",
+          "when": "view == intentLoop.overview",
+          "group": "3_configuration@3"
         }
       ]
     },
@@ -263,6 +280,30 @@
           "default": false,
           "scope": "resource",
           "description": "Continuously align safe, portable Claude and Codex repository files. Shared instructions and one-sided open-standard skills sync automatically; incompatible provider-specific schemas are flagged for review."
+        },
+        "intentLoop.codexBalancedModel": {
+          "type": "string",
+          "default": "gpt-5.6-terra",
+          "scope": "resource",
+          "description": "Exact Codex model used for Balanced reviews and summaries."
+        },
+        "intentLoop.codexDeepModel": {
+          "type": "string",
+          "default": "gpt-5.6-sol",
+          "scope": "resource",
+          "description": "Exact Codex model used for Deep reviews and summaries."
+        },
+        "intentLoop.claudeBalancedModel": {
+          "type": "string",
+          "default": "claude-sonnet-5",
+          "scope": "resource",
+          "description": "Exact Claude model or alias used for Balanced reviews and summaries."
+        },
+        "intentLoop.claudeDeepModel": {
+          "type": "string",
+          "default": "claude-opus-5",
+          "scope": "resource",
+          "description": "Exact Claude model or alias used for Deep reviews and summaries."
         }
       }
     }

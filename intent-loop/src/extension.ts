@@ -16,6 +16,8 @@ import { ChangeSummaryRange, ChangeSummarySession } from "./domain/change-summar
 import { Finding } from "./domain/findings";
 import { ObservationController } from "./observation-controller";
 import { buildFollowUpPrompt } from "./prompts/follow-up-builder";
+import { buildConfigurationSetupPrompt } from "./prompts/configuration-setup-builder";
+import { DEFAULT_MODEL_ROUTING, MODEL_ROUTING_SETTINGS, ModelRouting, normalizeModelRouting } from "./providers/model-routing";
 import { buildMarkdownReport } from "./reports/markdown-report";
 import { buildCodeReviewMarkdown } from "./reports/code-review-markdown";
 import { buildChangeSummaryMarkdown } from "./reports/change-summary-markdown";
@@ -159,9 +161,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       output.show(true);
     }),
     vscode.commands.registerCommand("intentLoop.openConfig", () => openConfiguration(controller)),
+    vscode.commands.registerCommand("intentLoop.createSetupPrompt", () => createSetupPrompt(controller)),
     vscode.commands.registerCommand("intentLoop.manageAgentFile", (relativePath?: string) =>
       manageAgentFile(controller, relativePath),
     ),
+    vscode.commands.registerCommand("intentLoop.initializeAgentWorkspace", async () => {
+      const snapshot = controller.getSnapshot();
+      if (snapshot.kind !== "ready") return;
+      try {
+        const result = await alignmentService.initialize(snapshot.state.repositoryRoot);
+        await vscode.workspace.getConfiguration("intentLoop", workspaceFolder.uri).update(
+          "alignAgentWorkspace",
+          true,
+          vscode.ConfigurationTarget.Workspace,
+        );
+        await controller.refresh();
+        await refreshAgentAlignment();
+        const created = [result.agentsCreated ? "AGENTS.md" : "", result.claudeCreated ? "CLAUDE.md" : ""].filter(Boolean);
+        void vscode.window.showInformationMessage(
+          created.length
+            ? `Initialized Claude and Codex workspace files: ${created.join(" and ")}. Continuous safe alignment is enabled.`
+            : "Claude and Codex workspace files already exist. Safe alignment is enabled and current.",
+        );
+      } catch (error) {
+        void vscode.window.showErrorMessage(`Could not initialize the Claude and Codex workspace: ${String(error)}`);
+      }
+    }),
     vscode.commands.registerCommand("intentLoop.alignAgentInstructions", () =>
       alignAgentWorkspace(controller, alignmentService, refreshAgentAlignment, true),
     ),
@@ -202,6 +227,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (enabled) await alignAgentWorkspace(controller, alignmentService, refreshAgentAlignment, true);
       controlCenter.refresh();
     }),
+    vscode.commands.registerCommand("intentLoop.setModelRouting", async (value?: unknown) => {
+      if (!isPlainRecord(value)) return;
+      const routing = normalizeModelRouting({
+        codexBalanced: typeof value.codexBalanced === "string" ? value.codexBalanced : undefined,
+        codexDeep: typeof value.codexDeep === "string" ? value.codexDeep : undefined,
+        claudeBalanced: typeof value.claudeBalanced === "string" ? value.claudeBalanced : undefined,
+        claudeDeep: typeof value.claudeDeep === "string" ? value.claudeDeep : undefined,
+      });
+      const configuration = vscode.workspace.getConfiguration("intentLoop", workspaceFolder.uri);
+      await Promise.all((Object.keys(MODEL_ROUTING_SETTINGS) as Array<keyof ModelRouting>).map((key) =>
+        configuration.update(MODEL_ROUTING_SETTINGS[key], routing[key], vscode.ConfigurationTarget.Workspace),
+      ));
+      controlCenter.refresh();
+      void vscode.window.showInformationMessage("Saved Balanced and Deep model routes for Claude and Codex.");
+    }),
     vscode.commands.registerCommand("intentLoop.installCodexAdapter", () =>
       installAdapter(adapters, "codex"),
     ),
@@ -235,6 +275,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration("intentLoop.alignAgentWorkspace", workspaceFolder.uri)) {
         void alignWhenEnabled();
+        controlCenter.refresh();
+      }
+      if ((Object.values(MODEL_ROUTING_SETTINGS)).some((key) => event.affectsConfiguration(`intentLoop.${key}`, workspaceFolder.uri))) {
         controlCenter.refresh();
       }
     }),
@@ -781,6 +824,7 @@ async function chooseProviderModel(
 }
 
 function providerModelChoices(purpose: "review" | "summary"): ProviderModelChoice[] {
+  const routing = getModelRouting();
   const balancedDetail = purpose === "summary"
     ? "Recommended for concise summaries with lower latency and cost."
     : "Faster routine review with balanced capability and latency.";
@@ -788,11 +832,21 @@ function providerModelChoices(purpose: "review" | "summary"): ProviderModelChoic
     ? "Higher-cost option for unusually large or complex comparisons."
     : "Quality-first review for large, sensitive, or difficult changes.";
   return [
-    { key: "codex-balanced", label: "Codex · Balanced (Default)", description: "gpt-5.6-terra · medium effort", detail: balancedDetail, provider: "codex", profile: "balanced", model: "gpt-5.6-terra", effort: "medium" },
-    { key: "codex-deep", label: "Codex · Deep", description: "gpt-5.6-sol · high effort", detail: deepDetail, provider: "codex", profile: "deep", model: "gpt-5.6-sol", effort: "high" },
-    { key: "claude-balanced", label: "Claude · Balanced (Default)", description: "claude-sonnet-5 · medium effort", detail: balancedDetail, provider: "claude", profile: "balanced", model: "claude-sonnet-5", effort: "medium" },
-    { key: "claude-deep", label: "Claude · Deep", description: "claude-opus-5 · high effort", detail: deepDetail, provider: "claude", profile: "deep", model: "claude-opus-5", effort: "high" },
+    { key: "codex-balanced", label: "Codex · Balanced (Default)", description: `${routing.codexBalanced} · medium effort`, detail: balancedDetail, provider: "codex", profile: "balanced", model: routing.codexBalanced, effort: "medium" },
+    { key: "codex-deep", label: "Codex · Deep", description: `${routing.codexDeep} · high effort`, detail: deepDetail, provider: "codex", profile: "deep", model: routing.codexDeep, effort: "high" },
+    { key: "claude-balanced", label: "Claude · Balanced (Default)", description: `${routing.claudeBalanced} · medium effort`, detail: balancedDetail, provider: "claude", profile: "balanced", model: routing.claudeBalanced, effort: "medium" },
+    { key: "claude-deep", label: "Claude · Deep", description: `${routing.claudeDeep} · high effort`, detail: deepDetail, provider: "claude", profile: "deep", model: routing.claudeDeep, effort: "high" },
   ];
+}
+
+function getModelRouting(): ModelRouting {
+  const configuration = vscode.workspace.getConfiguration("intentLoop", vscode.workspace.workspaceFolders?.[0]?.uri);
+  return normalizeModelRouting({
+    codexBalanced: configuration.get<string>(MODEL_ROUTING_SETTINGS.codexBalanced, DEFAULT_MODEL_ROUTING.codexBalanced),
+    codexDeep: configuration.get<string>(MODEL_ROUTING_SETTINGS.codexDeep, DEFAULT_MODEL_ROUTING.codexDeep),
+    claudeBalanced: configuration.get<string>(MODEL_ROUTING_SETTINGS.claudeBalanced, DEFAULT_MODEL_ROUTING.claudeBalanced),
+    claudeDeep: configuration.get<string>(MODEL_ROUTING_SETTINGS.claudeDeep, DEFAULT_MODEL_ROUTING.claudeDeep),
+  });
 }
 
 async function inspectCodeReviewFinding(
@@ -939,6 +993,16 @@ async function openConfiguration(controller: ObservationController): Promise<voi
   }
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(configPath));
   await controller.refresh();
+}
+
+async function createSetupPrompt(controller: ObservationController): Promise<void> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready") return;
+  const prompt = buildConfigurationSetupPrompt(controller.getConfiguration());
+  await vscode.env.clipboard.writeText(prompt);
+  const document = await vscode.workspace.openTextDocument({ language: "markdown", content: prompt });
+  await vscode.window.showTextDocument(document, { preview: false });
+  void vscode.window.showInformationMessage("VibeCheck setup prompt copied. Paste it into Claude or Codex from the repository root.");
 }
 
 async function createEvidenceReport(controller: ObservationController): Promise<void> {
