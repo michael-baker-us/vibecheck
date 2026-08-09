@@ -9,12 +9,13 @@ import { AnalysisEngine } from "./analyzers/analysis-engine";
 import { GitCollector } from "./collectors/git-collector";
 import { ConfigLoader } from "./config/config-loader";
 import { Finding } from "./domain/findings";
+import { calculateReadiness, missingRecommendedCategories } from "./domain/quality-gates";
 import { ObservationController } from "./observation-controller";
 import { buildFollowUpPrompt } from "./prompts/follow-up-builder";
 import { buildMarkdownReport } from "./reports/markdown-report";
 import { WorkspaceStore } from "./storage/workspace-store";
 import { FindingDiagnostics } from "./ui/diagnostics";
-import { OverviewNode, OverviewTreeProvider } from "./ui/overview-tree";
+import { ControlCenterProvider } from "./ui/control-center";
 import { IntentLoopStatusBar } from "./ui/status-bar";
 import { VerificationService } from "./verification/verification-service";
 
@@ -32,8 +33,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const statusBar = new IntentLoopStatusBar();
   const diagnostics = new FindingDiagnostics();
   let controller: ObservationController;
-  const overview = new OverviewTreeProvider(
+  const controlCenter = new ControlCenterProvider(
     () => controller.getSnapshot(),
+    () => controller.getConfiguration(),
     () => controller.getConfigurationError(),
   );
   controller = new ObservationController(
@@ -45,7 +47,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     new VerificationService(git),
     () => {
       const snapshot = controller.getSnapshot();
-      overview.refresh();
+      controlCenter.refresh();
       statusBar.render(snapshot);
       diagnostics.render(snapshot);
     },
@@ -61,27 +63,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     diagnostics,
     controller,
     eventReader,
-    vscode.window.registerTreeDataProvider("intentLoop.overview", overview),
+    vscode.window.registerWebviewViewProvider("intentLoop.overview", controlCenter, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
     vscode.commands.registerCommand("intentLoop.start", () => controller.resume()),
     vscode.commands.registerCommand("intentLoop.pause", () => controller.pause()),
     vscode.commands.registerCommand("intentLoop.refresh", () => controller.refresh()),
     vscode.commands.registerCommand("intentLoop.setIntent", () => setIntent(controller)),
-    vscode.commands.registerCommand("intentLoop.inspectFinding", (argument: Finding | OverviewNode) =>
+    vscode.commands.registerCommand("intentLoop.inspectFinding", (argument?: Finding) =>
       withFinding(argument, (finding) => inspectFinding(controller, finding)),
     ),
-    vscode.commands.registerCommand("intentLoop.acceptFinding", (argument: Finding | OverviewNode) =>
+    vscode.commands.registerCommand("intentLoop.acceptFinding", (argument?: Finding) =>
       withFinding(argument, (finding) => controller.setFindingStatus(finding.id, "accepted")),
     ),
-    vscode.commands.registerCommand("intentLoop.dismissFinding", (argument: Finding | OverviewNode) =>
+    vscode.commands.registerCommand("intentLoop.dismissFinding", (argument?: Finding) =>
       withFinding(argument, (finding) => controller.setFindingStatus(finding.id, "dismissed")),
     ),
-    vscode.commands.registerCommand("intentLoop.reopenFinding", (argument: Finding | OverviewNode) =>
+    vscode.commands.registerCommand("intentLoop.reopenFinding", (argument?: Finding) =>
       withFinding(argument, (finding) => controller.setFindingStatus(finding.id, "open")),
     ),
-    vscode.commands.registerCommand("intentLoop.copyPrompt", (argument?: Finding | OverviewNode) =>
-      copyPrompt(controller, extractFinding(argument)),
+    vscode.commands.registerCommand("intentLoop.copyPrompt", (argument?: Finding) =>
+      copyPrompt(controller, argument),
     ),
-    vscode.commands.registerCommand("intentLoop.runVerification", (argument?: string | OverviewNode) =>
+    vscode.commands.registerCommand("intentLoop.runVerification", (argument?: string) =>
       runVerificationCommand(controller, argument),
     ),
     vscode.commands.registerCommand("intentLoop.runAllVerification", async () => {
@@ -97,10 +101,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await runVerification(controller, definition.name);
       }
     }),
-    vscode.commands.registerCommand("intentLoop.showVerificationOutput", async (argument?: string | OverviewNode) => {
-      const name =
-        extractVerificationName(argument) ??
-        (await chooseVerification(controller, "Select verification output"));
+    vscode.commands.registerCommand("intentLoop.showVerificationOutput", async (argument?: string) => {
+      const name = argument ?? (await chooseVerification(controller, "Select verification output"));
       if (!name) return;
       const snapshot = controller.getSnapshot();
       if (snapshot.kind !== "ready") return;
@@ -119,6 +121,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       uninstallAdapter(adapters),
     ),
     vscode.commands.registerCommand("intentLoop.exportReview", () => exportReview(controller)),
+    vscode.commands.registerCommand("intentLoop.completeLoop", () => completeLoop(controller)),
+    vscode.commands.registerCommand("intentLoop.openChangedDiff", (relativePath?: string) =>
+      openChangedDiff(controller, relativePath),
+    ),
     vscode.commands.registerCommand("intentLoop.reset", () => resetBaseline(controller)),
     vscode.commands.registerCommand("intentLoop.deleteData", () => deleteData(controller, adapters)),
   );
@@ -214,9 +220,9 @@ async function runVerification(controller: ObservationController, name: string):
 
 async function runVerificationCommand(
   controller: ObservationController,
-  argument?: string | OverviewNode,
+  argument?: string,
 ): Promise<void> {
-  const name = extractVerificationName(argument) ?? (await chooseVerification(controller, "Run verification"));
+  const name = argument ?? (await chooseVerification(controller, "Run verification"));
   if (name) await runVerification(controller, name);
 }
 
@@ -251,6 +257,8 @@ async function openConfiguration(controller: ObservationController): Promise<voi
         "# Intent Loop runs only commands you explicitly trust in VS Code.",
         "verification:",
         "  - name: tests",
+        "    category: tests",
+        "    required: true",
         "    command: npm test",
         "    invalidated_by:",
         "      - src/**",
@@ -258,6 +266,18 @@ async function openConfiguration(controller: ObservationController): Promise<voi
         "      - tests/**",
         "      - package.json",
         "      - package-lock.json",
+        "",
+        "# Recommended: add required coverage and security checks for your stack.",
+        "#  - name: coverage",
+        "#    category: coverage",
+        "#    required: true",
+        "#    command: npm run coverage",
+        "#    invalidated_by: [src/**, test/**, tests/**]",
+        "#  - name: dependency security",
+        "#    category: security",
+        "#    required: true",
+        "#    command: npm audit --audit-level=high",
+        "#    invalidated_by: [package.json, package-lock.json]",
         "",
         "diff_expansion_threshold: 15",
         "",
@@ -292,6 +312,57 @@ async function resetBaseline(controller: ObservationController): Promise<void> {
     "Reset to HEAD",
   );
   if (choice === "Reset to HEAD") await controller.reset();
+}
+
+async function openChangedDiff(
+  controller: ObservationController,
+  relativePath?: string,
+): Promise<void> {
+  if (!relativePath) return;
+  const diff = await controller.getDiff(relativePath);
+  const document = await vscode.workspace.openTextDocument({
+    language: "diff",
+    content: diff || `No diff is currently available for ${relativePath}.`,
+  });
+  await vscode.window.showTextDocument(document, { preview: true });
+}
+
+async function completeLoop(controller: ObservationController): Promise<void> {
+  await controller.refresh();
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready") return;
+
+  if (!(await controller.isWorkingTreeClean())) {
+    const choice = await vscode.window.showWarningMessage(
+      "This loop still has uncommitted changes. Commit or revert them before advancing the baseline; Intent Loop will never commit automatically.",
+      "Open Source Control",
+    );
+    if (choice === "Open Source Control") await vscode.commands.executeCommand("workbench.view.scm");
+    return;
+  }
+
+  const readiness = calculateReadiness(snapshot.state.findings, snapshot.state.verification);
+  const missing = missingRecommendedCategories(controller.getConfiguration().verification);
+  const concerns = [...readiness.reasons];
+  if (missing.length) concerns.push(`Recommended gates not configured: ${missing.join(", ")}`);
+  const detail = concerns.length ? `\n\n${concerns.map((reason) => `• ${reason}`).join("\n")}` : "";
+  const action = concerns.length ? "Finish Anyway" : "Finish Loop";
+  const choice = await vscode.window.showWarningMessage(
+    `Finish this loop and advance the baseline to the current HEAD?${detail}`,
+    { modal: true },
+    action,
+  );
+  if (choice !== action) return;
+
+  await controller.reset();
+  await controller.setWorkingIntent(undefined);
+  const nextIntent = await vscode.window.showInputBox({
+    title: "Intent Loop: Start the next loop",
+    prompt: "What outcome should your coding agent work toward next? Leave blank to decide later.",
+    placeHolder: "Add coverage for the verification workflow",
+  });
+  if (nextIntent !== undefined) await controller.setWorkingIntent(nextIntent);
+  void vscode.window.showInformationMessage("Previous loop completed. The current HEAD is now your clean baseline.");
 }
 
 async function installAdapter(adapters: AdapterInstaller, agent: SupportedAgent): Promise<void> {
@@ -359,22 +430,9 @@ function selectWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
   return folders[0];
 }
 
-function extractFinding(argument?: Finding | OverviewNode): Finding | undefined {
-  if (!argument) return undefined;
-  if ("kind" in argument) return argument.kind === "finding" ? argument.finding : undefined;
-  return argument;
-}
-
 async function withFinding(
-  argument: Finding | OverviewNode,
+  argument: Finding | undefined,
   action: (finding: Finding) => Promise<void>,
 ): Promise<void> {
-  const finding = extractFinding(argument);
-  if (finding) await action(finding);
-}
-
-function extractVerificationName(argument?: string | OverviewNode): string | undefined {
-  if (!argument) return undefined;
-  if (typeof argument === "string") return argument;
-  return argument.kind === "verification" ? argument.verification.name : undefined;
+  if (argument) await action(argument);
 }

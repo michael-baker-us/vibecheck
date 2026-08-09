@@ -19,7 +19,7 @@ test("loads verification and boundary configuration from local YAML", async (con
     "boundaries:\n  - name: isolation\n    from: src/input/**\n    cannot_import: [src/game/**]\n",
   );
   assert.deepEqual(await new ConfigLoader().load(root), {
-    verification: [{ name: "tests", command: "npm test", invalidatedBy: ["src/**", "tests/**"] }],
+    verification: [{ name: "tests", command: "npm test", invalidatedBy: ["src/**", "tests/**"], required: true }],
     boundaries: [{ name: "isolation", from: "src/input/**", cannotImport: ["src/game/**"] }],
     diffExpansionThreshold: 8,
   });

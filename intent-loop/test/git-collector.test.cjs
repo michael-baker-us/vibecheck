@@ -30,6 +30,7 @@ test("discovers a repository and captures content-aware changes", async (context
   assert.equal(repository.root, realpathSync(repositoryRoot));
   assert.match(repository.head, /^[0-9a-f]{40}$/);
   assert.deepEqual(await collector.collectChanges(repository.root, repository.head), []);
+  assert.equal(await collector.isWorkingTreeClean(repository.root), true);
 
   writeFileSync(join(repositoryRoot, "tracked.txt"), "changed\n");
   writeFileSync(join(repositoryRoot, "untracked file.txt"), "new\n");
@@ -50,4 +51,6 @@ test("discovers a repository and captures content-aware changes", async (context
       after: "new\n",
     },
   ]);
+  assert.equal(await collector.isWorkingTreeClean(repository.root), false);
+  assert.match(await collector.getDiff(repository.root, repository.head, "untracked file.txt"), /\+new/);
 });

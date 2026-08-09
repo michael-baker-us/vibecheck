@@ -23,12 +23,16 @@ export class VerificationService {
         (item) =>
           item.name === definition.name &&
           item.command === definition.command &&
+          item.category === definition.category &&
+          item.required === definition.required &&
           this.arraysEqual(item.invalidatedBy, definition.invalidatedBy),
       );
       return previous ?? {
         name: definition.name,
         command: definition.command,
         invalidatedBy: definition.invalidatedBy,
+        category: definition.category,
+        required: definition.required,
         status: "not-run",
       };
     });

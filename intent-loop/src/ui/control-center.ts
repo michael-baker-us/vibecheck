@@ -1,0 +1,217 @@
+import * as path from "node:path";
+
+import * as vscode from "vscode";
+
+import { IntentLoopConfiguration } from "../domain/configuration";
+import { categoryFor, calculateReadiness, missingRecommendedCategories } from "../domain/quality-gates";
+import { ObservationSnapshot } from "../domain/observation-state";
+
+type WebviewMessage = { action?: unknown; id?: unknown };
+
+export class ControlCenterProvider implements vscode.WebviewViewProvider {
+  private view: vscode.WebviewView | undefined;
+
+  public constructor(
+    private readonly getSnapshot: () => ObservationSnapshot,
+    private readonly getConfiguration: () => IntentLoopConfiguration,
+    private readonly getConfigurationError: () => string | undefined,
+  ) {}
+
+  public resolveWebviewView(view: vscode.WebviewView): void {
+    this.view = view;
+    view.webview.options = { enableScripts: true };
+    view.webview.html = this.html(view.webview);
+    view.webview.onDidReceiveMessage((message: WebviewMessage) => void this.handle(message));
+    this.refresh();
+  }
+
+  public refresh(): void {
+    if (!this.view) return;
+    const snapshot = this.getSnapshot();
+    const configuration = this.getConfiguration();
+    const missingGates = missingRecommendedCategories(configuration.verification);
+    const baseReadiness = snapshot.kind === "ready"
+      ? calculateReadiness(snapshot.state.findings, snapshot.state.verification)
+      : undefined;
+    const readiness = baseReadiness && missingGates.length
+      ? {
+          status: baseReadiness.status === "ready" ? "incomplete" as const : baseReadiness.status,
+          label: baseReadiness.status === "ready" ? "Setup incomplete" : baseReadiness.label,
+          reasons: [...baseReadiness.reasons, `Missing recommended gates: ${missingGates.join(", ")}`],
+        }
+      : baseReadiness;
+    const payload = snapshot.kind === "ready"
+      ? {
+          kind: "ready",
+          state: snapshot.state,
+          readiness,
+          missingGates,
+          categories: Object.fromEntries(
+            configuration.verification.map((definition) => [definition.name, categoryFor(definition)]),
+          ),
+          configurationError: this.getConfigurationError(),
+        }
+      : snapshot;
+    void this.view.webview.postMessage({ type: "state", payload });
+  }
+
+  private async handle(message: WebviewMessage): Promise<void> {
+    if (typeof message.action !== "string") return;
+    const id = typeof message.id === "string" ? message.id : undefined;
+    const simpleCommands: Record<string, string> = {
+      "set-intent": "intentLoop.setIntent",
+      refresh: "intentLoop.refresh",
+      pause: "intentLoop.pause",
+      resume: "intentLoop.start",
+      "run-all": "intentLoop.runAllVerification",
+      "copy-prompt": "intentLoop.copyPrompt",
+      export: "intentLoop.exportReview",
+      complete: "intentLoop.completeLoop",
+      config: "intentLoop.openConfig",
+      "install-codex": "intentLoop.installCodexAdapter",
+      "install-claude": "intentLoop.installClaudeAdapter",
+      "remove-adapter": "intentLoop.uninstallAgentAdapter",
+      reset: "intentLoop.reset",
+      delete: "intentLoop.deleteData",
+      start: "intentLoop.start",
+    };
+    const command = simpleCommands[message.action];
+    if (command) {
+      await vscode.commands.executeCommand(command);
+      return;
+    }
+
+    const snapshot = this.getSnapshot();
+    if (snapshot.kind !== "ready" || !id) return;
+    if (message.action === "open-file") {
+      const changed = snapshot.state.changedFiles.find((file) => file.path === id);
+      if (changed) await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(path.join(snapshot.state.repositoryRoot, changed.path)));
+      return;
+    }
+    if (message.action === "diff-file") {
+      await vscode.commands.executeCommand("intentLoop.openChangedDiff", id);
+      return;
+    }
+    const finding = snapshot.state.findings.find((item) => item.id === id);
+    if (finding) {
+      const findingCommands: Record<string, string> = {
+        "inspect-finding": "intentLoop.inspectFinding",
+        "accept-finding": "intentLoop.acceptFinding",
+        "dismiss-finding": "intentLoop.dismissFinding",
+        "reopen-finding": "intentLoop.reopenFinding",
+        "prompt-finding": "intentLoop.copyPrompt",
+      };
+      const findingCommand = findingCommands[message.action];
+      if (findingCommand) await vscode.commands.executeCommand(findingCommand, finding);
+      return;
+    }
+    if (message.action === "run-check") await vscode.commands.executeCommand("intentLoop.runVerification", id);
+    if (message.action === "check-output") await vscode.commands.executeCommand("intentLoop.showVerificationOutput", id);
+  }
+
+  private html(webview: vscode.Webview): string {
+    const nonce = createNonce();
+    return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 14px; color: var(--vscode-foreground); font: var(--vscode-font-size)/1.45 var(--vscode-font-family); }
+    button { font: inherit; cursor: pointer; }
+    .shell { display: grid; gap: 12px; max-width: 760px; margin: 0 auto; }
+    .hero, .card { border: 1px solid var(--vscode-widget-border); border-radius: 8px; background: var(--vscode-sideBar-background); }
+    .hero { padding: 14px; background: linear-gradient(135deg, color-mix(in srgb, var(--vscode-button-background) 14%, transparent), transparent 65%); }
+    .hero-top, .row, .section-head, .item-head { display: flex; align-items: center; gap: 8px; }
+    .hero-top, .section-head, .item-head { justify-content: space-between; }
+    h1 { font-size: 17px; margin: 0; letter-spacing: -.2px; }
+    h2 { font-size: 13px; margin: 0; }
+    p { margin: 5px 0 0; color: var(--vscode-descriptionForeground); }
+    .badge { border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .ready { color: var(--vscode-testing-iconPassed); background: color-mix(in srgb, var(--vscode-testing-iconPassed) 13%, transparent); }
+    .blocked { color: var(--vscode-testing-iconFailed); background: color-mix(in srgb, var(--vscode-testing-iconFailed) 13%, transparent); }
+    .incomplete { color: var(--vscode-editorWarning-foreground); background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 13%, transparent); }
+    .intent { margin-top: 12px; padding: 10px; border-radius: 6px; background: var(--vscode-textBlockQuote-background); }
+    .intent strong { display:block; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--vscode-descriptionForeground); }
+    .intent span { display:block; margin-top:3px; }
+    .actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; margin-top: 10px; }
+    .btn { min-height: 30px; padding: 5px 9px; border-radius: 4px; border: 1px solid var(--vscode-button-border, transparent); color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+    .btn:hover { background: var(--vscode-button-hoverBackground); }
+    .btn.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
+    .btn.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
+    .btn.ghost { color: var(--vscode-foreground); background: transparent; border-color: var(--vscode-widget-border); }
+    .btn.small { min-height: 25px; padding: 2px 7px; font-size: 11px; }
+    .card { overflow: hidden; }
+    .section-head { padding: 10px 12px; border-bottom: 1px solid var(--vscode-widget-border); }
+    .section-head span { color: var(--vscode-descriptionForeground); font-size: 11px; }
+    .content { padding: 10px 12px; display:grid; gap:8px; }
+    .item { padding: 9px; border: 1px solid var(--vscode-widget-border); border-radius: 6px; }
+    .item-title { font-weight: 600; overflow-wrap:anywhere; }
+    .meta { color: var(--vscode-descriptionForeground); font-size: 11px; margin-top: 3px; }
+    .item-actions { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
+    .dot { width:8px; height:8px; border-radius:50%; flex:none; background:var(--vscode-descriptionForeground); }
+    .dot.passed { background:var(--vscode-testing-iconPassed); } .dot.failed { background:var(--vscode-testing-iconFailed); }
+    .dot.stale, .dot.running { background:var(--vscode-editorWarning-foreground); }
+    .empty { text-align:center; padding:12px; color:var(--vscode-descriptionForeground); }
+    .callout { padding:9px; border-radius:6px; background:var(--vscode-textBlockQuote-background); color:var(--vscode-descriptionForeground); }
+    .callout strong { color:var(--vscode-foreground); }
+    .reason { margin:3px 0; }
+    details { border-top: 1px solid var(--vscode-widget-border); }
+    summary { padding:10px 12px; cursor:pointer; font-weight:600; }
+    details .content { padding-top:0; }
+    .danger { color:var(--vscode-errorForeground)!important; }
+    .footer { text-align:center; font-size:11px; color:var(--vscode-descriptionForeground); padding:4px; }
+    @media (max-width: 260px) { .actions { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body><main id="app" class="shell"><div class="empty">Loading local workspace state…</div></main>
+<script nonce="${nonce}">
+  const vscode = acquireVsCodeApi();
+  const app = document.getElementById('app');
+  const send = (action,id) => vscode.postMessage({action,id});
+  const el = (tag, cls, text) => { const node=document.createElement(tag); if(cls) node.className=cls; if(text!==undefined) node.textContent=text; return node; };
+  const button = (label,action,id,kind='secondary') => { const node=el('button','btn small '+kind,label); node.onclick=()=>send(action,id); return node; };
+  const section = (title,count) => { const card=el('section','card'); const head=el('div','section-head'); head.append(el('h2','',title),el('span','',String(count))); const content=el('div','content'); card.append(head,content); return {card,content}; };
+  function render(data) {
+    app.replaceChildren();
+    if (data.kind !== 'ready') { const box=el('section','hero'); box.append(el('h1','', 'Intent Loop'),el('p','',data.reason)); box.append(button('Start observing','start',undefined,'primary')); app.append(box); return; }
+    const s=data.state, open=s.findings.filter(f=>f.status==='open'), history=s.findings.filter(f=>f.status!=='open');
+    const hero=el('section','hero'), top=el('div','hero-top');
+    top.append(el('h1','', 'Intent Loop'),el('span','badge '+data.readiness.status,data.readiness.label)); hero.append(top);
+    const intent=el('div','intent'); intent.append(el('strong','', 'Current intent'),el('span','',s.workingIntent||'No intent set — give the agent a clear outcome.')); hero.append(intent);
+    const reasons=el('div',''); data.readiness.reasons.forEach(r=>reasons.append(el('p','reason','• '+r))); hero.append(reasons);
+    const primary=el('div','actions'); primary.append(button(s.workingIntent?'Edit intent':'Set intent','set-intent',undefined,'primary'),button('Run all checks','run-all',undefined,'primary'),button('Copy agent prompt','copy-prompt'),button('Finish this loop','complete')); hero.append(primary); app.append(hero);
+
+    const gates=section('Quality gates',s.verification.length);
+    if(data.configurationError) gates.content.append(el('div','callout danger','Configuration error: '+data.configurationError));
+    if(data.missingGates.length) { const c=el('div','callout'); c.append(el('strong','', 'Recommended setup missing'),el('p','',data.missingGates.join(', ')+' — add these checks so “ready” means more.')); c.append(button('Configure gates','config')); gates.content.append(c); }
+    if(!s.verification.length) gates.content.append(el('div','empty','No checks configured yet. Add tests, coverage, and security checks.'));
+    s.verification.forEach(v=>{ const item=el('div','item'), head=el('div','item-head'), title=el('div','row'); title.append(el('i','dot '+v.status),el('span','item-title',v.name)); head.append(title,el('span','badge '+(v.status==='passed'?'ready':v.status==='failed'?'blocked':'incomplete'),v.status)); item.append(head,el('div','meta',(data.categories[v.name]||'other')+(v.required===false?' · optional':' · required'))); const a=el('div','item-actions'); a.append(button(v.status==='running'?'Running…':'Run','run-check',v.name),button('Output','check-output',v.name,'ghost')); item.append(a); gates.content.append(item); });
+    gates.content.append(button('Open quality-gate configuration','config',undefined,'ghost')); app.append(gates.card);
+
+    const attention=section('Needs attention',open.length);
+    if(!open.length) attention.content.append(el('div','empty','No unresolved findings.'));
+    open.forEach(f=>{ const item=el('div','item'); const head=el('div','item-head'); head.append(el('span','item-title',f.title),el('span','badge '+(f.severity==='high'?'blocked':'incomplete'),f.severity)); item.append(head,el('div','meta',f.basis+' · '+f.explanation)); const a=el('div','item-actions'); a.append(button('Inspect','inspect-finding',f.id),button('Ask agent','prompt-finding',f.id),button('Intentional','accept-finding',f.id,'ghost'),button('Dismiss','dismiss-finding',f.id,'ghost')); item.append(a); attention.content.append(item); }); app.append(attention.card);
+
+    const changes=section('Changed files',s.changedFiles.length);
+    if(!s.changedFiles.length) changes.content.append(el('div','empty','Your working tree matches the baseline.'));
+    s.changedFiles.forEach(f=>{ const item=el('div','item'),head=el('div','item-head'); head.append(el('span','item-title',f.path),el('span','meta',f.status)); item.append(head); const a=el('div','item-actions'); if(f.status!=='deleted') a.append(button('Open','open-file',f.path)); a.append(button('View diff','diff-file',f.path,'ghost')); item.append(a); changes.content.append(item); }); app.append(changes.card);
+
+    if(history.length){ const hist=section('Reviewed findings',history.length); history.forEach(f=>{ const item=el('div','item'); item.append(el('div','item-title',f.title),el('div','meta',f.status+' · '+f.severity)); item.append(button('Reopen','reopen-finding',f.id,'ghost')); hist.content.append(item); }); app.append(hist.card); }
+
+    const tools=el('section','card'), details=el('details'); details.append(el('summary','', 'Tools & local settings')); const tc=el('div','content'), row1=el('div','actions'), row2=el('div','actions'), row3=el('div','actions'); row1.append(button(s.paused?'Resume monitoring':'Pause monitoring',s.paused?'resume':'pause'),button('Refresh now','refresh')); row2.append(button('Export review','export'),button('Reset baseline','reset')); row3.append(button('Connect Codex','install-codex'),button('Connect Claude','install-claude'),button('Remove adapter','remove-adapter','', 'ghost'),button('Delete local data','delete','', 'ghost danger')); tc.append(row1,row2,row3); details.append(tc); tools.append(details); app.append(tools);
+    app.append(el('div','footer','Local only · baseline '+s.baselineCommit.slice(0,12)+(s.agent.connectedAgents.length?' · '+s.agent.connectedAgents.join(', ')+' connected':'')));
+  }
+  window.addEventListener('message',event=>{ if(event.data.type==='state') render(event.data.payload); });
+  vscode.postMessage({action:'refresh'});
+</script></body></html>`;
+  }
+}
+
+function createNonce(): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  return Array.from({ length: 32 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+}

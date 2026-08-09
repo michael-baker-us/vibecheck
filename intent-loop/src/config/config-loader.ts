@@ -15,6 +15,8 @@ type RawConfiguration = {
     name?: unknown;
     command?: unknown;
     invalidated_by?: unknown;
+    category?: unknown;
+    required?: unknown;
   }>;
   boundaries?: Array<{
     name?: unknown;
@@ -70,7 +72,9 @@ export class ConfigLoader {
         item.invalidated_by,
         `verification[${index}].invalidated_by`,
       );
-      return { name, command, invalidatedBy };
+      const category = this.verificationCategory(item.category, `verification[${index}].category`);
+      const required = item.required === undefined ? true : this.boolean(item.required, `verification[${index}].required`);
+      return { name, command, invalidatedBy, ...(category ? { category } : {}), required };
     });
   }
 
@@ -100,5 +104,22 @@ export class ConfigLoader {
 
   private positiveInteger(value: unknown, fallback: number): number {
     return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
+  }
+
+  private boolean(value: unknown, field: string): boolean {
+    if (typeof value !== "boolean") throw new Error(`${field} must be a boolean.`);
+    return value;
+  }
+
+  private verificationCategory(
+    value: unknown,
+    field: string,
+  ): VerificationDefinition["category"] {
+    if (value === undefined) return undefined;
+    const allowed = ["tests", "coverage", "security", "quality", "build", "other"] as const;
+    if (typeof value !== "string" || !allowed.includes(value as (typeof allowed)[number])) {
+      throw new Error(`${field} must be one of: ${allowed.join(", ")}.`);
+    }
+    return value as VerificationDefinition["category"];
   }
 }

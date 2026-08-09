@@ -2,7 +2,17 @@ export type VerificationDefinition = {
   name: string;
   command: string;
   invalidatedBy: string[];
+  category?: VerificationCategory;
+  required: boolean;
 };
+
+export type VerificationCategory =
+  | "tests"
+  | "coverage"
+  | "security"
+  | "quality"
+  | "build"
+  | "other";
 
 export type BoundaryRule = {
   name: string;

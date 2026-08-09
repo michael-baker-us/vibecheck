@@ -2,7 +2,7 @@
   "name": "intent-loop",
   "displayName": "Intent Loop",
   "description": "A local control center for AI-assisted coding.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "publisher": "local",
   "license": "UNLICENSED",
@@ -129,6 +129,17 @@
         "category": "Intent Loop"
       },
       {
+        "command": "intentLoop.completeLoop",
+        "title": "Finish Current Loop and Start Next",
+        "category": "Intent Loop",
+        "icon": "$(pass-filled)"
+      },
+      {
+        "command": "intentLoop.openChangedDiff",
+        "title": "Open Changed File Diff",
+        "category": "Intent Loop"
+      },
+      {
         "command": "intentLoop.deleteData",
         "title": "Delete Local Observation Data",
         "category": "Intent Loop"
@@ -147,7 +158,8 @@
       "intent-loop": [
         {
           "id": "intentLoop.overview",
-          "name": "Workspace"
+          "name": "Control Center",
+          "type": "webview"
         }
       ]
     },
@@ -178,38 +190,6 @@
           "when": "view == intentLoop.overview",
           "group": "navigation@5"
         }
-      ],
-      "view/item/context": [
-        {
-          "command": "intentLoop.copyPrompt",
-          "when": "view == intentLoop.overview && viewItem == intentLoop.finding.open",
-          "group": "inline@1"
-        },
-        {
-          "command": "intentLoop.acceptFinding",
-          "when": "view == intentLoop.overview && viewItem == intentLoop.finding.open",
-          "group": "intent@1"
-        },
-        {
-          "command": "intentLoop.dismissFinding",
-          "when": "view == intentLoop.overview && viewItem == intentLoop.finding.open",
-          "group": "intent@2"
-        },
-        {
-          "command": "intentLoop.reopenFinding",
-          "when": "view == intentLoop.overview && (viewItem == intentLoop.finding.accepted || viewItem == intentLoop.finding.dismissed || viewItem == intentLoop.finding.resolved)",
-          "group": "intent@1"
-        },
-        {
-          "command": "intentLoop.runVerification",
-          "when": "view == intentLoop.overview && viewItem == intentLoop.verification",
-          "group": "inline@1"
-        },
-        {
-          "command": "intentLoop.showVerificationOutput",
-          "when": "view == intentLoop.overview && viewItem == intentLoop.verification",
-          "group": "verification@1"
-        }
       ]
     },
     "configuration": {
@@ -232,17 +212,20 @@
   },
   "scripts": {
     "clean": "rm -rf dist",
-    "compile": "tsc -p ./ && esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --sourcemap --outfile=dist/extension.js",
+    "compile": "npm run clean && tsc -p ./ && esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --sourcemap --outfile=dist/extension.js",
     "watch": "concurrently --kill-others \"tsc -w --noEmit -p ./\" \"esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --sourcemap --outfile=dist/extension.js --watch\"",
     "check": "tsc --noEmit -p ./",
     "test": "npm run compile && node --test test/*.test.cjs",
-    "verify": "npm run check && npm test",
-    "package:vsix": "npm run verify && vsce package --out intent-loop-0.1.0.vsix --allow-missing-repository --skip-license --no-dependencies --no-rewrite-relative-links"
+    "coverage": "npm run compile && c8 --all --check-coverage --lines 80 --functions 75 --branches 60 --statements 80 --include='dist/adapters/adapter-installer.js' --include='dist/analyzers/**/*.js' --include='dist/collectors/git-collector.js' --include='dist/config/**/*.js' --include='dist/domain/quality-gates.js' --include='dist/prompts/**/*.js' --include='dist/reports/**/*.js' --include='dist/verification/**/*.js' --reporter=text node --test test/*.test.cjs",
+    "security": "npm audit --audit-level=high",
+    "verify": "npm run check && npm run coverage",
+    "package:vsix": "npm run verify && vsce package --out intent-loop-0.2.0.vsix --allow-missing-repository --skip-license --no-dependencies --no-rewrite-relative-links"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.100.0",
     "@vscode/vsce": "^3.9.2",
+    "c8": "^12.0.0",
     "concurrently": "^10.0.4",
     "esbuild": "^0.28.2",
     "typescript": "^5.8.0"

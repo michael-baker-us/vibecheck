@@ -33,7 +33,7 @@ The pre-launch task runs TypeScript in watch mode. Extension runtime output is a
 
 ```bash
 npm run package:vsix
-code --install-extension intent-loop-0.1.0.vsix --force
+code --install-extension intent-loop-0.2.0.vsix --force
 ```
 
 Reload the target VS Code window after installing a new build.
@@ -44,7 +44,7 @@ Reload the target VS Code window after installing a new build.
 collectors ─┐
 config ─────┼─> observation controller ─> persisted workspace state
 analyzers ──┤              │                         │
-verification┘              ├─> status / tree / diagnostics
+verification┘              ├─> control-center webview / status / diagnostics
                            ├─> prompt and report builders
 local agent events ────────┘
 ```
@@ -54,7 +54,7 @@ local agent events ────────┘
 - `analyzers/` contains pure deterministic risk logic.
 - `verification/` runs trusted commands and hashes relevant inputs.
 - `adapters/` installs and ingests optional local agent hooks.
-- `ui/` renders native VS Code surfaces.
+- `ui/` renders the VS Code sidebar control center, status bar, and diagnostics.
 
 ## Privacy checks
 
@@ -72,4 +72,6 @@ During a real agent task, check:
 - command changes require renewed trust;
 - copied prompts improve the next interaction;
 - pausing and deleting state behave predictably;
+- finishing a clean loop advances the baseline while a dirty tree is rejected;
+- missing tests, coverage, or security gates are understandable without opening YAML;
 - editor responsiveness remains unaffected while idle.

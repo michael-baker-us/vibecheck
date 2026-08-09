@@ -2,7 +2,8 @@
 
 ## Implementation status — 2026-08-09
 
-Version 0.1.0 implements the complete local repository-mode vertical slice:
+Version 0.2.0 implements the complete local repository-mode vertical slice and its first
+product-facing control center:
 
 - M0 repository observation, baseline state, native VS Code UI, and persistence;
 - M1 deterministic findings, provenance, lifecycle, diagnostics, and evidence navigation;
@@ -10,6 +11,7 @@ Version 0.1.0 implements the complete local repository-mode vertical slice:
 - M3 working intent, follow-up prompts, finding resolution, and Markdown review export;
 - M4/M5 optional local Claude and Codex lifecycle adapters using bounded normalized JSONL events;
 - M6 configured path boundaries for relative TypeScript and JavaScript imports.
+- M7 guided sidebar workflow, explicit quality-gate categories, readiness, and safe loop completion.
 
 Remaining work is product validation and hardening rather than missing core workflow: sustained
 dogfooding, VS Code-host integration automation, multi-root support, performance measurement on
@@ -32,7 +34,8 @@ integration.
 - The extension never needs to launch or proxy an agent.
 - Deterministic findings take priority over LLM interpretation.
 - Agent adapters are optional and independently replaceable.
-- Native VS Code UI is preferred over a custom webview.
+- The UI should feel native to VS Code; a scoped sidebar webview is acceptable where it materially
+  improves workflow clarity and direct actionability.
 - Captured data is inspectable and deletable.
 - Performance overhead must be unnoticeable during ordinary editing.
 

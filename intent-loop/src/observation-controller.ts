@@ -132,6 +132,11 @@ export class ObservationController implements vscode.Disposable {
     await this.start();
   }
 
+  public async isWorkingTreeClean(): Promise<boolean> {
+    if (this.snapshot.kind !== "ready") return false;
+    return this.git.isWorkingTreeClean(this.snapshot.state.repositoryRoot);
+  }
+
   public async deleteData(): Promise<void> {
     await this.store.deleteObservation();
     this.snapshot = {

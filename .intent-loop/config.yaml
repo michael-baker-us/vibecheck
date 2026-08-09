@@ -1,5 +1,7 @@
 verification:
   - name: typecheck
+    category: quality
+    required: true
     command: npm --prefix intent-loop run check
     invalidated_by:
       - intent-loop/src/**
@@ -8,12 +10,34 @@ verification:
       - intent-loop/package-lock.json
 
   - name: tests
+    category: tests
+    required: true
     command: npm --prefix intent-loop run test
     invalidated_by:
       - intent-loop/src/**
       - intent-loop/test/**
       - intent-loop/resources/**
       - intent-loop/tsconfig.json
+      - intent-loop/package.json
+      - intent-loop/package-lock.json
+
+  - name: core coverage
+    category: coverage
+    required: true
+    command: npm --prefix intent-loop run coverage
+    invalidated_by:
+      - intent-loop/src/**
+      - intent-loop/test/**
+      - intent-loop/resources/**
+      - intent-loop/tsconfig.json
+      - intent-loop/package.json
+      - intent-loop/package-lock.json
+
+  - name: dependency security
+    category: security
+    required: true
+    command: npm --prefix intent-loop run security
+    invalidated_by:
       - intent-loop/package.json
       - intent-loop/package-lock.json
 

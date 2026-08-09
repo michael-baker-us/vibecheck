@@ -85,7 +85,30 @@ export class GitCollector {
     if (relativePath) {
       args.push(relativePath);
     }
-    return this.run(args, repositoryRoot);
+    const diff = await this.run(args, repositoryRoot);
+    if (diff || !relativePath) return diff;
+
+    const untracked = this.parseNullSeparated(
+      await this.run(["ls-files", "--others", "--exclude-standard", "-z", "--", relativePath], repositoryRoot),
+    );
+    if (!untracked.includes(relativePath)) return "";
+    const content = await this.readWorkingFile(repositoryRoot, relativePath);
+    if (!content || content.binary) return `Binary file added: ${relativePath}\n`;
+    const lines = content.text?.split("\n") ?? [];
+    return [
+      `diff --git a/${relativePath} b/${relativePath}`,
+      "new file mode 100644",
+      "--- /dev/null",
+      `+++ b/${relativePath}`,
+      `@@ -0,0 +1,${lines.length} @@`,
+      ...lines.map((line) => `+${line}`),
+      "",
+    ].join("\n");
+  }
+
+  public async isWorkingTreeClean(repositoryRoot: string): Promise<boolean> {
+    const output = await this.run(["status", "--porcelain=v1", "--untracked-files=normal"], repositoryRoot);
+    return output.trim().length === 0;
   }
 
   private parseNameStatus(output: string): ChangedPath[] {

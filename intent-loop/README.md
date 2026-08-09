@@ -15,6 +15,7 @@ monitor the agent.
 - Detects runtime dependency changes, weakened tests, sensitive files, binaries, generated files,
   broad diffs, and configured TypeScript/JavaScript architecture boundaries.
 - Runs only explicitly configured and individually trusted local verification commands.
+- Presents tests, coverage, security, and other checks as visible quality gates.
 - Marks passing verification stale when its relevant input files change.
 - Keeps an optional one-line working intent beside the current changes.
 - Maintains an attention queue with fact, configured-rule, and heuristic provenance.
@@ -41,20 +42,26 @@ rotated at 5 MB with one previous segment.
 npm install
 npm run verify
 npm run package:vsix
-code --install-extension intent-loop-0.1.0.vsix --force
+code --install-extension intent-loop-0.2.0.vsix --force
 ```
 
 Reload VS Code and open the Intent Loop icon in the Activity Bar.
 
-## Basic workflow
+## Control-center workflow
 
 1. Open a Git-backed workspace.
-2. Set a short working intent if it would add context.
+2. Set a short working intent at the top of the control center.
 3. Use Codex, Claude, or manual editing normally.
-4. Open **Needs attention** when the status bar changes.
-5. Inspect, accept, or dismiss findings.
-6. Run configured verification.
+4. Use the visible **Run all checks** action before accepting the work.
+5. Open **Needs attention** when the status bar changes.
+6. Inspect, accept, or dismiss findings directly in the sidebar.
 7. Copy a suggested follow-up prompt or export a review.
+8. Commit the finished work, then select **Finish this loop** to advance the baseline and enter the
+   next intent.
+
+The readiness badge is deliberately conservative. Required checks must pass and high-risk findings
+must be resolved. The sidebar also calls out missing test, coverage, or security categories. Intent
+Loop never commits code or silently overrides a warning.
 
 ## Configuration
 
@@ -63,6 +70,8 @@ Run **Intent Loop: Open Local Configuration** or create `.intent-loop/config.yam
 ```yaml
 verification:
   - name: tests
+    category: tests
+    required: true
     command: npm test
     invalidated_by:
       - src/**
@@ -72,13 +81,35 @@ verification:
       - package-lock.json
 
   - name: typecheck
+    category: quality
+    required: true
     command: npm run typecheck
     invalidated_by:
       - src/**
       - tsconfig.json
 
+  - name: coverage threshold
+    category: coverage
+    required: true
+    command: npm run coverage
+    invalidated_by:
+      - src/**
+      - test/**
+
+  - name: dependency security
+    category: security
+    required: true
+    command: npm audit --audit-level=high
+    invalidated_by:
+      - package.json
+      - package-lock.json
+
 diff_expansion_threshold: 15
 ```
+
+Supported categories are `tests`, `coverage`, `security`, `quality`, `build`, and `other`. Commands
+should enforce their own meaningful policy—for example, a coverage command should fail below the
+repository's chosen threshold. Set `required: false` only when a check is genuinely advisory.
 
 Repository commands are never executed merely because the file exists. The exact command and
 working directory are shown for approval, and trust is invalidated when the command changes.
