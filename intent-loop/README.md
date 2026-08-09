@@ -47,7 +47,7 @@ rotated at 5 MB with one previous segment.
 npm install
 npm run verify
 npm run package:vsix
-code --install-extension vibecheck-0.5.2.vsix --force
+code --install-extension vibecheck-0.6.1.vsix --force
 ```
 
 Reload VS Code and open the VibeCheck icon in the Activity Bar.
@@ -72,6 +72,16 @@ must be resolved. The sidebar also calls out missing test, coverage, or security
 The quality-gate overview shows the latest test totals, line coverage, and dependency-vulnerability
 count at a glance. Each gate retains its structured result, run time, duration, and freshness state.
 VibeCheck never stages or commits code, and it deliberately leaves file and diff UX to VS Code.
+
+The Control Center is organized around four focused views:
+
+- **Overview:** release readiness, the next recommended action, current metrics, and evidence export.
+- **Quality:** detailed quality-gate results, structured metrics, timestamps, output, and configuration.
+- **Attention:** unresolved and reviewed findings with explicit review decisions.
+- **Workspace:** the active plan, repository agent capabilities, adapters, and local monitoring data.
+
+The selected view and agent-workspace tab persist across refreshes, keeping the interface stable
+while checks run or repository state changes.
 
 ## Agent workspace capabilities
 

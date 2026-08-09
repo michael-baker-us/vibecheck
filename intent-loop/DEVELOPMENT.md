@@ -33,7 +33,7 @@ The pre-launch task runs TypeScript in watch mode. Extension runtime output is a
 
 ```bash
 npm run package:vsix
-code --install-extension vibecheck-0.5.2.vsix --force
+code --install-extension vibecheck-0.6.1.vsix --force
 ```
 
 Reload the target VS Code window after installing a new build.

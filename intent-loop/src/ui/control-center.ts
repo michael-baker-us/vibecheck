@@ -111,67 +111,114 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <style>
-    :root { color-scheme: light dark; }
+    :root {
+      color-scheme: light dark;
+      --panel-background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+      --panel-surface: color-mix(in srgb, var(--vscode-foreground) 5%, var(--panel-background));
+      --panel-surface-strong: color-mix(in srgb, var(--vscode-foreground) 9%, var(--panel-background));
+      --panel-border: var(--vscode-contrastBorder, color-mix(in srgb, var(--vscode-foreground) 22%, transparent));
+      --panel-muted: color-mix(in srgb, var(--vscode-foreground) 72%, var(--panel-background));
+    }
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 14px; color: var(--vscode-foreground); font: var(--vscode-font-size)/1.45 var(--vscode-font-family); }
+    body { margin: 0; padding: 0; color: var(--vscode-foreground); background:var(--panel-background); font: var(--vscode-font-size)/1.45 var(--vscode-font-family); }
     button { font: inherit; cursor: pointer; }
-    .shell { display: grid; gap: 12px; max-width: 760px; margin: 0 auto; }
-    .hero, .card { border: 1px solid var(--vscode-widget-border); border-radius: 8px; background: var(--vscode-sideBar-background); }
-    .hero { padding: 14px; background: linear-gradient(135deg, color-mix(in srgb, var(--vscode-button-background) 14%, transparent), transparent 65%); }
+    .shell { display: grid; gap: 12px; max-width: 900px; margin: 0 auto; padding:12px; }
+    .product-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; min-width:0; }
+    .brand { display:flex; align-items:center; gap:8px; min-width:0; }
+    .brand-mark { display:grid; place-items:center; width:26px; height:26px; border-radius:7px; color:var(--vscode-button-foreground); background:var(--vscode-button-background); font-weight:800; }
+    .brand-copy { min-width:0; }
+    .brand-name { font-size:13px; font-weight:700; }
+    .brand-context { color:var(--panel-muted); font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .nav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:2px; padding:3px; border:1px solid var(--panel-border); border-radius:7px; background:var(--panel-surface); position:sticky; top:0; z-index:5; }
+    .nav-btn { min-width:0; padding:6px 3px; border:1px solid transparent; border-radius:4px; color:var(--panel-muted); background:transparent; font-size:11px; overflow:hidden; text-overflow:ellipsis; }
+    .nav-btn:hover { color:var(--vscode-foreground); background:var(--vscode-list-hoverBackground); }
+    .nav-btn[aria-selected="true"] { color:var(--vscode-button-foreground); background:var(--vscode-button-background); font-weight:650; }
+    .page { display:grid; gap:12px; min-width:0; }
+    .page[hidden] { display:none; }
+    .hero, .card { border: 1px solid var(--panel-border); border-radius: 8px; background: var(--panel-surface); }
+    .hero { padding: 15px; border-color:color-mix(in srgb,var(--vscode-button-background) 55%,var(--panel-border)); background: linear-gradient(145deg, color-mix(in srgb, var(--vscode-button-background) 18%, var(--panel-background)), var(--panel-surface) 72%); }
     .hero-top, .row, .section-head, .item-head { display: flex; align-items: center; gap: 8px; }
     .hero-top, .section-head, .item-head { justify-content: space-between; }
+    .eyebrow { margin-bottom:3px; color:var(--panel-muted); font-size:10px; font-weight:700; letter-spacing:.65px; text-transform:uppercase; }
     h1 { font-size: 17px; margin: 0; letter-spacing: -.2px; }
     h2 { font-size: 13px; margin: 0; }
-    p { margin: 5px 0 0; color: var(--vscode-descriptionForeground); }
-    .badge { border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-    .ready { color: var(--vscode-testing-iconPassed); background: color-mix(in srgb, var(--vscode-testing-iconPassed) 13%, transparent); }
-    .blocked { color: var(--vscode-testing-iconFailed); background: color-mix(in srgb, var(--vscode-testing-iconFailed) 13%, transparent); }
-    .incomplete { color: var(--vscode-editorWarning-foreground); background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 13%, transparent); }
-    .neutral { color: var(--vscode-descriptionForeground); background: var(--vscode-textBlockQuote-background); }
-    .plan { margin-top: 12px; padding: 10px; border-radius: 6px; background: var(--vscode-textBlockQuote-background); }
-    .plan strong { display:block; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--vscode-descriptionForeground); }
+    p { margin: 5px 0 0; color: var(--panel-muted); }
+    .badge { border:1px solid transparent; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 650; white-space: nowrap; }
+    .ready { color: var(--vscode-testing-iconPassed); }
+    .blocked { color: var(--vscode-testing-iconFailed); }
+    .incomplete { color: var(--vscode-editorWarning-foreground); }
+    .neutral { color: var(--panel-muted); }
+    .badge.ready { background:color-mix(in srgb,var(--vscode-testing-iconPassed) 16%,var(--panel-background)); border-color:color-mix(in srgb,var(--vscode-testing-iconPassed) 42%,var(--panel-border)); }
+    .badge.blocked { background:color-mix(in srgb,var(--vscode-testing-iconFailed) 16%,var(--panel-background)); border-color:color-mix(in srgb,var(--vscode-testing-iconFailed) 42%,var(--panel-border)); }
+    .badge.incomplete { background:color-mix(in srgb,var(--vscode-editorWarning-foreground) 16%,var(--panel-background)); border-color:color-mix(in srgb,var(--vscode-editorWarning-foreground) 42%,var(--panel-border)); }
+    .badge.neutral { background:var(--panel-surface-strong); border-color:var(--panel-border); }
+    .plan { margin-top: 12px; padding: 10px; border-radius: 6px; background: var(--panel-surface-strong); }
+    .plan strong { display:block; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--panel-muted); }
     .plan span { display:block; margin-top:3px; }
+    .next-action { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:10px; margin-top:11px; padding:10px; border:1px solid color-mix(in srgb,var(--vscode-focusBorder) 45%,transparent); border-radius:7px; background:color-mix(in srgb,var(--vscode-focusBorder) 7%,transparent); }
+    .next-action strong { display:block; font-size:12px; }
+    .next-action span { display:block; margin-top:2px; color:var(--panel-muted); font-size:10px; }
     .actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; margin-top: 10px; }
     .btn { min-height: 30px; padding: 5px 9px; border-radius: 4px; border: 1px solid var(--vscode-button-border, transparent); color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
     .btn:hover { background: var(--vscode-button-hoverBackground); }
     .btn.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
     .btn.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
-    .btn.ghost { color: var(--vscode-foreground); background: transparent; border-color: var(--vscode-widget-border); }
+    .btn.ghost { color: var(--vscode-foreground); background: var(--panel-surface); border-color: var(--panel-border); }
+    .btn.ghost:hover { background:var(--panel-surface-strong); }
     .btn.small { min-height: 25px; padding: 2px 7px; font-size: 11px; }
     .card { overflow: hidden; }
-    .section-head { padding: 10px 12px; border-bottom: 1px solid var(--vscode-widget-border); }
-    .section-head span { color: var(--vscode-descriptionForeground); font-size: 11px; }
+    .section-head { padding: 10px 12px; border-bottom: 1px solid var(--panel-border); }
+    .section-head span { color: var(--panel-muted); font-size: 11px; }
     .content { padding: 10px 12px; display:grid; gap:8px; }
-    .metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
-    .metric { padding:9px; border:1px solid var(--vscode-widget-border); border-radius:6px; background:var(--vscode-editor-background); min-width:0; }
-    .metric-label { color:var(--vscode-descriptionForeground); font-size:10px; font-weight:700; letter-spacing:.45px; text-transform:uppercase; }
-    .metric-value { margin-top:2px; font-size:16px; font-weight:650; overflow-wrap:anywhere; }
-    .metric-detail { color:var(--vscode-descriptionForeground); font-size:10px; margin-top:2px; }
-    .tabs { display:flex; gap:2px; padding:0 12px; border-bottom:1px solid var(--vscode-widget-border); }
-    .tab { flex:1; padding:8px 6px 7px; border:0; border-bottom:2px solid transparent; color:var(--vscode-descriptionForeground); background:transparent; }
+    .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(112px,1fr)); gap:7px; }
+    .metric { padding:9px; border:1px solid var(--panel-border); border-radius:6px; background:var(--panel-background); min-width:0; }
+    .metric-label { color:var(--panel-muted); font-size:10px; font-weight:700; letter-spacing:.45px; text-transform:uppercase; }
+    .metric-value { margin-top:2px; font-size:18px; line-height:1.25; font-weight:700; overflow-wrap:anywhere; }
+    .metric-detail { color:var(--panel-muted); font-size:10px; margin-top:2px; }
+    .tabs { display:flex; gap:2px; padding:0 12px; border-bottom:1px solid var(--panel-border); }
+    .tab { flex:1; min-width:0; padding:8px 6px 7px; border:0; border-bottom:2px solid transparent; color:var(--panel-muted); background:transparent; overflow-wrap:anywhere; }
     .tab:hover { color:var(--vscode-foreground); background:var(--vscode-list-hoverBackground); }
     .tab[aria-selected="true"] { color:var(--vscode-foreground); border-bottom-color:var(--vscode-focusBorder); }
     .tab-panel { padding-top:2px; }
     .capability-group { display:grid; gap:7px; }
     .capability-group + .capability-group { margin-top:5px; }
-    .capability-label { color:var(--vscode-descriptionForeground); font-size:10px; font-weight:700; letter-spacing:.55px; text-transform:uppercase; }
-    .item { padding: 9px; border: 1px solid var(--vscode-widget-border); border-radius: 6px; }
+    .capability-label { color:var(--panel-muted); font-size:10px; font-weight:700; letter-spacing:.55px; text-transform:uppercase; }
+    .item { padding: 9px; border: 1px solid var(--panel-border); border-radius: 6px; background:var(--panel-background); }
     .item-title { font-weight: 600; overflow-wrap:anywhere; }
-    .meta { color: var(--vscode-descriptionForeground); font-size: 11px; margin-top: 3px; }
+    .meta { color: var(--panel-muted); font-size: 11px; margin-top: 3px; overflow-wrap:anywhere; }
     .item-actions { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
-    .dot { width:8px; height:8px; border-radius:50%; flex:none; background:var(--vscode-descriptionForeground); }
+    .dot { width:8px; height:8px; border-radius:50%; flex:none; background:var(--panel-muted); }
     .dot.passed { background:var(--vscode-testing-iconPassed); } .dot.failed { background:var(--vscode-testing-iconFailed); }
     .dot.stale, .dot.running { background:var(--vscode-editorWarning-foreground); }
-    .empty { text-align:center; padding:12px; color:var(--vscode-descriptionForeground); }
-    .callout { padding:9px; border-radius:6px; background:var(--vscode-textBlockQuote-background); color:var(--vscode-descriptionForeground); }
+    .empty { text-align:center; padding:12px; color:var(--panel-muted); }
+    .callout { padding:9px; border:1px solid var(--panel-border); border-radius:6px; background:var(--panel-surface-strong); color:var(--panel-muted); }
     .callout strong { color:var(--vscode-foreground); }
     .reason { margin:3px 0; }
-    details { border-top: 1px solid var(--vscode-widget-border); }
+    details { border-top: 1px solid var(--panel-border); }
     summary { padding:10px 12px; cursor:pointer; font-weight:600; }
     details .content { padding-top:0; }
     .danger { color:var(--vscode-errorForeground)!important; }
-    .footer { text-align:center; font-size:11px; color:var(--vscode-descriptionForeground); padding:4px; }
-    @media (max-width: 320px) { .actions, .metrics { grid-template-columns:1fr; } }
+    .footer { text-align:center; font-size:11px; color:var(--panel-muted); padding:4px; overflow-wrap:anywhere; }
+    .section-intro { color:var(--panel-muted); font-size:11px; padding:0 1px; }
+    @media (max-width: 360px) {
+      .shell { gap:9px; padding:8px; }
+      .nav { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .hero, .content { padding:10px; }
+      .section-head { padding:9px 10px; }
+      .actions, .metrics, .next-action { grid-template-columns:1fr; }
+      .next-action .btn, .actions .btn { width:100%; }
+      .hero-top, .item-head { align-items:flex-start; flex-wrap:wrap; }
+      .item-head > :first-child { min-width:0; }
+      .badge { white-space:normal; }
+    }
+    @media (max-width: 240px) {
+      .shell { padding:6px; }
+      .product-bar { align-items:flex-start; }
+      .brand-context { display:none; }
+      .product-bar > .btn { flex:none; }
+      .tabs { padding:0 6px; }
+      .item-actions .btn { flex:1 1 100%; }
+    }
   </style>
 </head>
 <body><main id="app" class="shell"><div class="empty">Loading local workspace state…</div></main>
@@ -193,31 +240,57 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     app.replaceChildren();
     if (data.kind !== 'ready') { const box=el('section','hero'); box.append(el('h1','', 'VibeCheck'),el('p','',data.reason)); box.append(button('Start observing','start',undefined,'primary')); app.append(box); return; }
     const s=data.state, open=s.findings.filter(f=>f.status==='open'), history=s.findings.filter(f=>f.status!=='open');
+    const latest=category=>s.verification.filter(v=>(data.categories[v.name]||'other')===category&&v.summary).sort((a,b)=>(b.finishedAt||'').localeCompare(a.finishedAt||''))[0];
+    const testGate=latest('tests'), coverageGate=latest('coverage'), securityGate=latest('security');
+    const gateTone=gate=>!gate?'neutral':gate.status==='passed'?'ready':gate.status==='failed'?'blocked':'incomplete';
+    const qualityMetrics=(includeChanges=false)=>{ const metrics=el('div','metrics'); metrics.append(
+      metric('Tests',testGate?testGate.summary.passed+'/'+testGate.summary.total:'—',testGate?testGate.summary.failed+' failed · '+testGate.status:'No result yet',gateTone(testGate)),
+      metric('Line coverage',coverageGate?percent(coverageGate.summary.lines):'—',coverageGate?(coverageGate.summary.change?signed(coverageGate.summary.change)+' · ':'')+coverageGate.status:'No result yet',gateTone(coverageGate)),
+      metric('Security',securityGate?String(securityGate.summary.total):'—',securityGate?securityGate.summary.newIssues+' new · '+securityGate.summary.fixedIssues+' fixed':'No result yet',securityGate&&securityGate.status==='passed'&&securityGate.summary.total?'incomplete':gateTone(securityGate))
+    ); if(includeChanges)metrics.append(metric('Changed files',String(s.changedFiles.length),s.headBranch||'detached HEAD',s.changedFiles.length?'incomplete':'neutral')); return metrics; };
+
+    const product=el('header','product-bar'),brand=el('div','brand'),brandCopy=el('div','brand-copy');
+    brandCopy.append(el('div','brand-name','VibeCheck'),el('div','brand-context',(s.headBranch||'detached HEAD')+' · '+s.baselineCommit.slice(0,8)));
+    brand.append(el('div','brand-mark','V'),brandCopy); product.append(brand,button('Refresh','refresh',undefined,'ghost')); app.append(product);
+
+    const pages={overview:el('section','page'),quality:el('section','page'),attention:el('section','page'),workspace:el('section','page')};
+    const nav=el('nav','nav'), navItems=[['overview','Overview'],['quality','Quality'],['attention','Attention'+(open.length?' · '+open.length:'')],['workspace','Workspace']];
+    const savedView=(vscode.getState()||{}).activeView, initialView=pages[savedView]?savedView:'overview';
+    const showView=view=>{ Object.entries(pages).forEach(([key,page])=>page.hidden=key!==view); nav.querySelectorAll('.nav-btn').forEach(item=>item.setAttribute('aria-selected',String(item.dataset.view===view))); vscode.setState({...vscode.getState(),activeView:view}); };
+    navItems.forEach(([view,label])=>{ const item=el('button','nav-btn',label); item.type='button'; item.dataset.view=view; item.setAttribute('aria-selected','false'); item.onclick=()=>showView(view); nav.append(item); }); app.append(nav);
+
     const hero=el('section','hero'), top=el('div','hero-top');
-    top.append(el('h1','', 'Engineering confidence'),el('span','badge '+data.readiness.status,data.readiness.label)); hero.append(top);
-    hero.append(el('p','',s.changedFiles.length+' uncommitted file '+(s.changedFiles.length===1?'change':'changes')+' monitored against '+(s.headBranch||'current HEAD')+'. Use VS Code Source Control for files and diffs.'));
+    hero.append(el('div','eyebrow','Release readiness'));
+    const readinessTitle=data.readiness.status==='ready'?'Ready for review':data.readiness.status==='blocked'?'Action needed':'Evidence incomplete';
+    top.append(el('h1','',readinessTitle),el('span','badge '+data.readiness.status,data.readiness.label)); hero.append(top);
+    hero.append(el('p','',s.changedFiles.length+' uncommitted '+(s.changedFiles.length===1?'change':'changes')+' on '+(s.headBranch||'the current branch')+'.'));
     const reasons=el('div',''); data.readiness.reasons.forEach(r=>reasons.append(el('p','reason','• '+r))); hero.append(reasons);
-    const primary=el('div','actions'); primary.append(button('Run all checks','run-all',undefined,'primary'),button('Create evidence report','export',undefined,'primary'),button('Copy agent follow-up','copy-prompt'),button('Refresh confidence','refresh')); hero.append(primary); app.append(hero);
+    const failed=s.verification.find(v=>v.required!==false&&v.status==='failed'), highFinding=open.find(f=>f.severity==='high'), unfinished=s.verification.find(v=>v.required!==false&&v.status!=='passed');
+    const next=el('div','next-action'),nextCopy=el('div','');
+    if(failed){ nextCopy.append(el('strong','','Inspect '+failed.name),el('span','','A required quality gate is failing.')); next.append(nextCopy,button('View output','check-output',failed.name,'primary')); }
+    else if(highFinding){ nextCopy.append(el('strong','','Review '+highFinding.title),el('span','','Resolve or acknowledge the highest-risk finding.')); next.append(nextCopy,button('Inspect','inspect-finding',highFinding.id,'primary')); }
+    else if(unfinished){ nextCopy.append(el('strong','','Refresh required evidence'),el('span','','Run pending or stale checks against the current files.')); next.append(nextCopy,button('Run checks','run-all',undefined,'primary')); }
+    else { nextCopy.append(el('strong','','Capture the evidence'),el('span','','All required checks are current. Export a review snapshot.')); next.append(nextCopy,button('Create report','export',undefined,'primary')); }
+    hero.append(next);
+    const primary=el('div','actions'); primary.append(button('Run all checks','run-all',undefined,'primary'),button('Create report','export'),button('Copy agent follow-up','copy-prompt'),button('Open active plan','open-plan',undefined,'ghost')); hero.append(primary);
+    pages.overview.append(hero,qualityMetrics(true));
 
     const gates=section('Quality gates',s.verification.length);
+    pages.quality.append(el('div','section-intro','Run, inspect, and compare repository-owned checks. Passing evidence becomes stale when relevant inputs change.'));
     if(data.configurationError) gates.content.append(el('div','callout danger','Configuration error: '+data.configurationError));
     if(data.missingGates.length) { const c=el('div','callout'); c.append(el('strong','', 'Recommended setup missing'),el('p','',data.missingGates.join(', ')+' — add these checks so “ready” means more.')); c.append(button('Configure gates','config')); gates.content.append(c); }
-    const latest=category=>s.verification.filter(v=>(data.categories[v.name]||'other')===category&&v.summary).sort((a,b)=>(b.finishedAt||'').localeCompare(a.finishedAt||''))[0];
-    const testGate=latest('tests'), coverageGate=latest('coverage'), securityGate=latest('security'), metrics=el('div','metrics');
-    metrics.append(
-      metric('Tests',testGate?testGate.summary.passed+'/'+testGate.summary.total:'—',testGate?testGate.summary.failed+' failed · '+testGate.status:'Run a test gate',testGate?(testGate.status==='passed'?'ready':testGate.status==='failed'?'blocked':'incomplete'):'neutral'),
-      metric('Line coverage',coverageGate?percent(coverageGate.summary.lines):'—',coverageGate?(coverageGate.summary.change?signed(coverageGate.summary.change)+' · ':'')+coverageGate.status:'Run a coverage gate',coverageGate?(coverageGate.status==='passed'?'ready':coverageGate.status==='failed'?'blocked':'incomplete'):'neutral'),
-      metric('Security',securityGate?String(securityGate.summary.total):'—',securityGate?securityGate.summary.newIssues+' new · '+securityGate.summary.fixedIssues+' fixed':'Run a security gate',securityGate?(securityGate.status==='failed'?'blocked':securityGate.status==='passed'?(securityGate.summary.total?'incomplete':'ready'):'incomplete'):'neutral')
-    ); gates.content.append(metrics);
+    gates.content.append(qualityMetrics());
     if(!s.verification.length) gates.content.append(el('div','empty','No checks configured yet. Add tests, coverage, and security checks.'));
     s.verification.forEach(v=>{ const item=el('div','item'), head=el('div','item-head'), title=el('div','row'); title.append(el('i','dot '+v.status),el('span','item-title',v.name)); head.append(title,el('span','badge '+(v.status==='passed'?'ready':v.status==='failed'?'blocked':'incomplete'),v.status)); item.append(head,el('div','meta',(data.categories[v.name]||'other')+(v.required===false?' · optional':' · required')+(v.finishedAt?' · '+new Date(v.finishedAt).toLocaleString():'')+(v.durationMs!==undefined?' · '+(v.durationMs/1000).toFixed(1)+'s':''))); if(v.summary)item.append(el('div','callout',summaryText(v.summary))); const a=el('div','item-actions'); a.append(button(v.status==='running'?'Running…':'Run','run-check',v.name),button('Output','check-output',v.name,'ghost')); item.append(a); gates.content.append(item); });
-    gates.content.append(button('Open quality-gate configuration','config',undefined,'ghost')); app.append(gates.card);
+    gates.content.append(button('Open quality-gate configuration','config',undefined,'ghost')); pages.quality.append(gates.card);
 
     const attention=section('Needs attention',open.length);
+    pages.attention.append(el('div','section-intro','Review high-signal findings, record intentional changes, and keep the readiness decision explainable.'));
     if(!open.length) attention.content.append(el('div','empty','No unresolved findings.'));
-    open.forEach(f=>{ const item=el('div','item'); const head=el('div','item-head'); head.append(el('span','item-title',f.title),el('span','badge '+(f.severity==='high'?'blocked':'incomplete'),f.severity)); item.append(head,el('div','meta',f.basis+' · '+f.explanation)); const a=el('div','item-actions'); a.append(button('Inspect','inspect-finding',f.id),button('Ask agent','prompt-finding',f.id),button('Intentional','accept-finding',f.id,'ghost'),button('Dismiss','dismiss-finding',f.id,'ghost')); item.append(a); attention.content.append(item); }); app.append(attention.card);
+    open.forEach(f=>{ const item=el('div','item'); const head=el('div','item-head'); head.append(el('span','item-title',f.title),el('span','badge '+(f.severity==='high'?'blocked':'incomplete'),f.severity)); item.append(head,el('div','meta',f.basis+' · '+f.explanation)); const a=el('div','item-actions'); a.append(button('Inspect','inspect-finding',f.id),button('Ask agent','prompt-finding',f.id),button('Intentional','accept-finding',f.id,'ghost'),button('Dismiss','dismiss-finding',f.id,'ghost')); item.append(a); attention.content.append(item); }); pages.attention.append(attention.card);
 
     const agents=section('Agent workspace',s.agentFiles.filter(f=>f.exists).length+' configured');
+    pages.workspace.append(el('div','section-intro','Follow the active plan and manage repository-scoped guidance, capabilities, and local integrations.'));
     const plan=el('div','item');
     if(s.activePlan){
       const ph=el('div','item-head'); ph.append(el('span','item-title',s.activePlan.title),el('span','badge ready','active plan')); plan.append(ph,el('div','meta',s.activePlan.path));
@@ -235,14 +308,15 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     const showOwner=owner=>{ const ownerFiles=s.agentFiles.filter(f=>f.owner===owner),groups=[]; kindOrder.forEach(kind=>{ const files=ownerFiles.filter(f=>f.kind===kind); if(!files.length)return; const group=el('div','capability-group'); group.append(el('div','capability-label',(kindLabels[kind]||kind)+' · '+files.filter(f=>f.exists).length+'/'+files.length+' present'),...files.map(agentFileItem)); groups.push(group); }); panel.replaceChildren(...groups); panel.setAttribute('aria-labelledby','agent-tab-'+owner); tabs.querySelectorAll('[role="tab"]').forEach(tab=>{ const selected=tab.dataset.owner===owner; tab.setAttribute('aria-selected',String(selected)); tab.tabIndex=selected?0:-1; }); vscode.setState({...vscode.getState(),agentFileOwner:owner}); };
     owners.forEach(([owner,label],index)=>{ const files=s.agentFiles.filter(f=>f.owner===owner), tab=el('button','tab',label+' ('+files.length+')'); tab.type='button'; tab.dataset.owner=owner; tab.id='agent-tab-'+owner; tab.setAttribute('role','tab'); tab.setAttribute('aria-controls','agent-file-panel'); tab.onclick=()=>showOwner(owner); tab.onkeydown=event=>{ if(event.key!=='ArrowLeft'&&event.key!=='ArrowRight') return; event.preventDefault(); const offset=event.key==='ArrowRight'?1:-1, next=owners[(index+offset+owners.length)%owners.length][0]; showOwner(next); tabs.querySelector('[data-owner="'+next+'"]').focus(); }; tabs.append(tab); });
     panel.id='agent-file-panel'; panel.setAttribute('aria-labelledby','agent-tab-'+initialOwner); agents.card.append(tabs,panel); showOwner(initialOwner);
-    const adapter=el('div','item'); adapter.append(el('div','item-title','Local agent event adapters'),el('div','meta',s.agent.connectedAgents.length?s.agent.connectedAgents.join(', ')+' connected':'Optional lifecycle context; repository monitoring works without adapters.')); const aa=el('div','item-actions'); aa.append(button('Connect Codex','install-codex'),button('Connect Claude','install-claude'),button('Remove adapter','remove-adapter',undefined,'ghost')); adapter.append(aa); const agentFooter=el('div','content'); agentFooter.append(adapter); agents.card.append(agentFooter); app.append(agents.card);
+    const adapter=el('div','item'); adapter.append(el('div','item-title','Local agent event adapters'),el('div','meta',s.agent.connectedAgents.length?s.agent.connectedAgents.join(', ')+' connected':'Optional lifecycle context; repository monitoring works without adapters.')); const aa=el('div','item-actions'); aa.append(button('Connect Codex','install-codex'),button('Connect Claude','install-claude'),button('Remove adapter','remove-adapter',undefined,'ghost')); adapter.append(aa); const agentFooter=el('div','content'); agentFooter.append(adapter); agents.card.append(agentFooter); pages.workspace.append(agents.card);
 
     const evidence=section('Evidence & reporting','local');
-    const summary=el('div','callout'); summary.append(el('strong','', 'Current evidence snapshot'),el('p','',(s.headSubject?s.headSubject+' · ':'')+s.verification.filter(v=>v.status==='passed').length+' checks passed · '+open.length+' findings open · updated '+new Date(s.lastUpdatedAt).toLocaleTimeString())); evidence.content.append(summary); const ea=el('div','actions'); ea.append(button('Create Markdown report','export'),button('Copy agent follow-up','copy-prompt'),button('Show check output','check-output-menu',undefined,'ghost'),button('Open quality config','config',undefined,'ghost')); evidence.content.append(ea); app.append(evidence.card);
+    const summary=el('div','callout'); summary.append(el('strong','', 'Current evidence snapshot'),el('p','',(s.headSubject?s.headSubject+' · ':'')+s.verification.filter(v=>v.status==='passed').length+' checks passed · '+open.length+' findings open · updated '+new Date(s.lastUpdatedAt).toLocaleTimeString())); evidence.content.append(summary); const ea=el('div','actions'); ea.append(button('Create Markdown report','export'),button('Copy agent follow-up','copy-prompt'),button('Show check output','check-output-menu',undefined,'ghost'),button('Open quality config','config',undefined,'ghost')); evidence.content.append(ea); pages.overview.append(evidence.card);
 
-    if(history.length){ const hist=section('Reviewed findings',history.length); history.forEach(f=>{ const item=el('div','item'); item.append(el('div','item-title',f.title),el('div','meta',f.status+' · '+f.severity)); item.append(button('Reopen','reopen-finding',f.id,'ghost')); hist.content.append(item); }); app.append(hist.card); }
+    if(history.length){ const hist=section('Reviewed findings',history.length); history.forEach(f=>{ const item=el('div','item'); item.append(el('div','item-title',f.title),el('div','meta',f.status+' · '+f.severity)); item.append(button('Reopen','reopen-finding',f.id,'ghost')); hist.content.append(item); }); pages.attention.append(hist.card); }
 
-    const tools=el('section','card'), details=el('details'); details.append(el('summary','', 'Monitoring & local data')); const tc=el('div','content'), row1=el('div','actions'); row1.append(button(s.paused?'Resume monitoring':'Pause monitoring',s.paused?'resume':'pause'),button('Refresh now','refresh'),button('Delete local data','delete',undefined,'ghost danger')); tc.append(row1); details.append(tc); tools.append(details); app.append(tools);
+    const tools=el('section','card'), details=el('details'); details.append(el('summary','', 'Monitoring & local data')); const tc=el('div','content'), row1=el('div','actions'); row1.append(button(s.paused?'Resume monitoring':'Pause monitoring',s.paused?'resume':'pause'),button('Refresh now','refresh'),button('Delete local data','delete',undefined,'ghost danger')); tc.append(row1); details.append(tc); tools.append(details); pages.workspace.append(tools);
+    Object.values(pages).forEach(page=>app.append(page)); showView(initialView);
     app.append(el('div','footer','Local only · '+(s.headBranch||'detached HEAD')+' · '+s.baselineCommit.slice(0,12)));
   }
   window.addEventListener('message',event=>{ if(event.data.type==='state') render(event.data.payload); });
