@@ -125,6 +125,36 @@ verification:
       - tsconfig.json
 ```
 
+### Metrics parsing
+
+VibeCheck reads pass/fail counts, coverage percentages, and vulnerability counts out of each gate's output. Detection is automatic: it tries every parser for the gate's category and keeps the first confident match.
+
+| Category | Supported formats |
+| --- | --- |
+| `tests` | `junit`, `tap`, `jest`, `vitest`, `mocha` |
+| `coverage` | `lcov`, `cobertura`, `istanbul-json`, `istanbul-text`, `go-coverage`, `coverage-total` |
+| `security` | `npm-audit-json`, `sarif`, `npm-audit-text` |
+
+Interchange formats are the portable path — any runner that can emit JUnit XML, LCOV, Cobertura, or SARIF is supported without a VibeCheck change.
+
+Two optional fields override detection:
+
+```yaml
+verification:
+  - name: tests
+    category: tests
+    required: true
+    command: npx vitest run --reporter=junit --outputFile=reports/junit.xml
+    format: junit                 # pin the parser; "auto" (default) or "none" to disable
+    report_path: reports/junit.xml # parse this artifact instead of the command's output
+    invalidated_by:
+      - src/**
+```
+
+`report_path` is the more reliable option where a runner can already write a report, because terminal output carries colour codes, progress redraws, and interleaved stderr. The path must be repository-relative, and the artifact is read whether the command passed or failed. If it is missing, VibeCheck falls back to parsing the command output and says so.
+
+When no parser recognizes a gate's output, the gate reports that explicitly rather than showing an empty metric, so a missing format is distinguishable from a check that never ran.
+
 The extension also contributes these VS Code settings:
 
 | Setting | Default | Purpose |

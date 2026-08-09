@@ -48,4 +48,10 @@ export type VerificationState = {
   output?: string;
   inputHashes?: Record<string, string>;
   summary?: VerificationSummary;
+  /** Which format adapter produced `summary`. */
+  summaryFormat?: string;
+  /** Set when the gate should have produced metrics but no adapter recognised its output. */
+  summaryUnrecognized?: boolean;
+  /** Set when `reportPath` is configured but the file could not be read after the run. */
+  reportPathMissing?: boolean;
 };

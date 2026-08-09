@@ -59,6 +59,8 @@ verification:
     category: tests # tests | coverage | security | quality | build | other
     required: true
     command: npm test
+    format: auto # optional; pins the metrics parser
+    report_path: reports/junit.xml # optional; parse this artifact instead of command output
     invalidated_by:
       - src/**
       - test/**
@@ -66,6 +68,22 @@ verification:
 
 diff_expansion_threshold: 15
 \`\`\`
+
+## Metrics parsing
+
+VibeCheck reads pass/fail counts, coverage percentages, and vulnerability counts from gate output.
+Leave \`format\` unset unless detection is ambiguous; these values are supported:
+
+- tests: \`junit\`, \`tap\`, \`jest\`, \`vitest\`, \`mocha\`
+- coverage: \`lcov\`, \`cobertura\`, \`istanbul-json\`, \`istanbul-text\`, \`go-coverage\`, \`coverage-total\`
+- security: \`npm-audit-json\`, \`sarif\`, \`npm-audit-text\`
+- \`none\` disables parsing for a gate that reports no metrics.
+
+Prefer a machine-readable artifact when the runner can already write one without changing package
+scripts or dependencies — for example a runner invoked with a JUnit or LCOV reporter flag. Set
+\`report_path\` to the repository-relative file it writes. Terminal output is parsed when
+\`report_path\` is absent, which is less reliable because it carries colour codes and progress
+redraws.
 
 Optional architecture rules belong in \`.vibecheck/rules.yaml\`:
 

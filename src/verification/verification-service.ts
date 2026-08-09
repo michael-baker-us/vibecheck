@@ -9,9 +9,10 @@ import { GitCollector } from "../collectors/git-collector";
 import { VerificationDefinition } from "../domain/configuration";
 import { categoryFor } from "../domain/quality-gates";
 import { VerificationState } from "../domain/verification";
-import { parseVerificationSummary } from "./result-parser";
+import { parseVerificationResult } from "./result-parser";
 
 const MAX_OUTPUT_CHARACTERS = 200_000;
+const MAX_REPORT_CHARACTERS = 2_000_000;
 
 export class VerificationService {
   public constructor(private readonly git: GitCollector) {}
@@ -73,6 +74,19 @@ export class VerificationService {
     const inputHashes = await this.hashInputs(repositoryRoot, definition.invalidatedBy);
     const result = await this.execute(definition.command, repositoryRoot, signal);
     const finishedAt = new Date();
+
+    // A failing run still writes its report, and that is exactly when the numbers matter most,
+    // so the artifact is read regardless of exit code.
+    const report = definition.reportPath
+      ? await this.readReport(repositoryRoot, definition.reportPath)
+      : undefined;
+    const parsed = parseVerificationResult(
+      categoryFor(definition),
+      report ?? result.output,
+      previous?.summary,
+      definition.format,
+    );
+
     return {
       ...running,
       status: result.exitCode === 0 ? "passed" : "failed",
@@ -81,8 +95,27 @@ export class VerificationService {
       exitCode: result.exitCode,
       output: this.redact(result.output).slice(-MAX_OUTPUT_CHARACTERS),
       inputHashes,
-      summary: parseVerificationSummary(categoryFor(definition), result.output, previous?.summary),
+      ...(parsed.summary ? { summary: parsed.summary } : {}),
+      ...(parsed.format ? { summaryFormat: parsed.format } : {}),
+      ...(parsed.unrecognized ? { summaryUnrecognized: true } : {}),
+      ...(definition.reportPath && report === undefined ? { reportPathMissing: true } : {}),
     };
+  }
+
+  /**
+   * Reads a configured report artifact. The path is confined to the repository so a configuration
+   * file cannot make VibeCheck read arbitrary locations on disk, and a missing or unreadable file
+   * falls back to parsing the command's own output rather than failing the gate.
+   */
+  private async readReport(repositoryRoot: string, reportPath: string): Promise<string | undefined> {
+    const resolvedRoot = path.resolve(repositoryRoot);
+    const resolved = path.resolve(resolvedRoot, reportPath);
+    if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) return undefined;
+    try {
+      return (await readFile(resolved, "utf8")).slice(0, MAX_REPORT_CHARACTERS);
+    } catch {
+      return undefined;
+    }
   }
 
   public commandHash(repositoryRoot: string, command: string): string {

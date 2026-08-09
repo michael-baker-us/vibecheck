@@ -8,6 +8,8 @@ import {
   DEFAULT_CONFIGURATION,
   VibeCheckConfiguration,
   VerificationDefinition,
+  VerificationFormat,
+  VERIFICATION_FORMATS,
 } from "../domain/configuration";
 
 type RawConfiguration = {
@@ -17,6 +19,8 @@ type RawConfiguration = {
     invalidated_by?: unknown;
     category?: unknown;
     required?: unknown;
+    format?: unknown;
+    report_path?: unknown;
   }>;
   boundaries?: Array<{
     name?: unknown;
@@ -79,7 +83,17 @@ export class ConfigLoader {
       );
       const category = this.verificationCategory(item.category, `verification[${index}].category`);
       const required = item.required === undefined ? true : this.boolean(item.required, `verification[${index}].required`);
-      return { name, command, invalidatedBy, ...(category ? { category } : {}), required };
+      const format = this.verificationFormat(item.format, `verification[${index}].format`);
+      const reportPath = this.reportPath(item.report_path, `verification[${index}].report_path`);
+      return {
+        name,
+        command,
+        invalidatedBy,
+        ...(category ? { category } : {}),
+        required,
+        ...(format ? { format } : {}),
+        ...(reportPath ? { reportPath } : {}),
+      };
     });
   }
 
@@ -138,5 +152,26 @@ export class ConfigLoader {
       throw new Error(`${field} must be one of: ${allowed.join(", ")}.`);
     }
     return value as VerificationDefinition["category"];
+  }
+
+  private verificationFormat(value: unknown, field: string): VerificationFormat | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== "string" || !VERIFICATION_FORMATS.includes(value as VerificationFormat)) {
+      throw new Error(`${field} must be one of: ${VERIFICATION_FORMATS.join(", ")}.`);
+    }
+    return value as VerificationFormat;
+  }
+
+  /**
+   * Report paths stay repository-relative. Absolute paths and parent traversal are rejected at
+   * load time so a shared configuration file cannot point VibeCheck outside the repository.
+   */
+  private reportPath(value: unknown, field: string): string | undefined {
+    if (value === undefined) return undefined;
+    const reportPath = this.nonEmptyString(value, field);
+    if (path.isAbsolute(reportPath) || reportPath.split(/[\\/]/).includes("..")) {
+      throw new Error(`${field} must be a repository-relative path without "..".`);
+    }
+    return reportPath;
   }
 }
