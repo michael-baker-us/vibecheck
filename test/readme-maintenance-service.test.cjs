@@ -51,6 +51,17 @@ test("builds incremental and whole-repository prompts from watermark scope", () 
   assert.match(readmePrompt({ ...request, mode: "full", baseCommit: undefined }), /Create or revise a holistic README/);
 });
 
+test("applies professional README structure and evidence guardrails", () => {
+  const prompt = readmePrompt(request);
+  assert.match(prompt, /polished, scan-friendly README comparable to a mature public GitHub project/);
+  assert.match(prompt, /project name and a concise value proposition/);
+  assert.match(prompt, /Choose sections based on repository evidence rather than a rigid template/);
+  assert.match(prompt, /accurate copy-pasteable commands/);
+  assert.match(prompt, /relative links for repository files and assets/);
+  assert.match(prompt, /omit empty or placeholder sections/);
+  assert.match(prompt, /Never fabricate badge URLs, build status, download counts/);
+});
+
 test("passes the selected model, effort, schema, and read-only permissions to providers", () => {
   const codex = codexReadmeArguments(request, "/tmp/schema.json", "/tmp/result.json");
   assert.deepEqual(codex.slice(0, 7), [
@@ -80,6 +91,14 @@ test("parses README provider output and enforces required content", () => {
   assert.throws(() => parseReadmeOutput("not json"), /invalid JSON/);
   assert.throws(() => parseReadmeOutput(JSON.stringify({ summary: "", content: "# Project" })), /empty summary/);
   assert.throws(() => parseReadmeOutput(JSON.stringify({ summary: "Summary", content: "" })), /empty README/);
+  assert.throws(
+    () => parseReadmeOutput(JSON.stringify({ summary: "Summary", content: "Intro first.\n\n# Project" })),
+    /begin with a Markdown H1/,
+  );
+  assert.throws(
+    () => parseReadmeOutput(JSON.stringify({ summary: "Summary", content: "# Project\n\n# Setup" })),
+    /multiple H1 headings/,
+  );
 });
 
 test("unwraps Codex presentation fences and rejects Claude plan-file handoffs", () => {
@@ -92,7 +111,7 @@ test("unwraps Codex presentation fences and rejects Claude plan-file handoffs", 
   assert.throws(() => parseReadmeOutput(JSON.stringify({
     summary: "README planned.",
     content: "Plan file at /Users/example/.claude/plans/readme.md contains the full proposed root README.md. No files were modified.",
-  })), /complete Markdown document with an H1/);
+  })), /begin with a Markdown H1/);
 });
 
 test("normalizes README provider progress", () => {

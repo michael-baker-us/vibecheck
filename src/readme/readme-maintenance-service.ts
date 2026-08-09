@@ -174,8 +174,12 @@ export function readmePrompt(request: ReadmeMaintenanceRequest): string {
     ...scope,
     "Return the complete proposed root README.md as Markdown in the structured content field and a short summary of the documentation changes.",
     "The content field must contain only the raw README document with a Markdown H1: do not wrap it in a code fence, add a proposed-README heading, return a plan, mention a plan file, or include commentary outside the document.",
-    "Make the README useful to developers and users: explain purpose, capabilities, setup, common workflows, configuration, architecture, testing, and constraints when repository evidence supports them.",
-    "Do not invent behavior, commands, prerequisites, links, compatibility, or roadmap claims. Do not modify files or include a VibeCheck watermark; the extension adds the canonical marker after validation.",
+    "Produce a polished, scan-friendly README comparable to a mature public GitHub project: begin with the project name and a concise value proposition, establish the intended audience and problem before implementation detail, and use a clear H2/H3 hierarchy with short paragraphs and focused lists.",
+    "Choose sections based on repository evidence rather than a rigid template. When supported, prefer a logical progression such as overview, key capabilities, quick start, usage, configuration, architecture, development and testing, limitations, and contributing or license information.",
+    "Make the first successful path easy to follow. Use accurate copy-pasteable commands in fenced code blocks, state prerequisites and required working directories, keep terminology consistent with the product, use tables only when they improve scanning, and use relative links for repository files and assets.",
+    "Preserve useful existing explanations and stable section anchors when revising. Keep the document concise, remove repetition and stale material, omit empty or placeholder sections, and avoid excessive badges, decorative emoji, promotional language, and walls of text.",
+    "Include badges, screenshots, demos, support channels, contribution instructions, security policies, license claims, compatibility claims, and status or roadmap statements only when their targets and facts are verifiable in the repository. Never fabricate badge URLs, build status, download counts, commands, links, features, or policies.",
+    "Do not invent behavior, prerequisites, or project maturity. Do not modify files or include a VibeCheck watermark; the extension adds the canonical marker after validation.",
   ].join(" ");
 }
 
@@ -194,8 +198,11 @@ export function parseReadmeOutput(raw: string): ReadmeMaintenanceResult {
   const content = normalizeReadmeContent(value.content);
   if (!summary) throw new Error("The README provider returned an empty summary.");
   if (!content) throw new Error("The README provider returned empty README content.");
-  if (!/^#\s+\S/m.test(content)) {
-    throw new Error("The README provider did not return a complete Markdown document with an H1 heading.");
+  if (!/^#\s+\S/.test(content)) {
+    throw new Error("The README provider did not begin with a Markdown H1 project heading.");
+  }
+  if ((content.match(/^#\s+\S/gm) ?? []).length !== 1) {
+    throw new Error("The README provider returned multiple H1 headings; use one project title and an H2/H3 section hierarchy.");
   }
   if (Buffer.byteLength(content, "utf8") > MAX_README_BYTES) throw new Error("The proposed README exceeds the 2 MB limit.");
   if (content.includes("\0")) throw new Error("The proposed README contains invalid null bytes.");

@@ -35,7 +35,8 @@ monitor the agent.
 - Generates or maintains the root `README.md` through an explicit Codex or Claude CLI action. A
   hidden watermark records the reviewed commit and ISO timestamp: valid ancestor markers drive an
   incremental Git-history review, while missing, malformed, or divergent markers trigger a holistic
-  repository review.
+  repository review. Generated documents follow an evidence-backed, professional GitHub README
+  structure without fabricated badges, commands, links, policies, or project claims.
 - Makes model routing explicit before every review. The exact Codex and Claude models for Balanced
   and Deep profiles are workspace-configurable and shared by reviews, change summaries, and README
   maintenance. Balanced uses medium effort; Deep uses high effort.
