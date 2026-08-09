@@ -2,7 +2,7 @@
 
 ## Scope and architecture
 
-- This repository contains the VibeCheck VS Code extension in `vibecheck/`; run project commands from the repository root with `npm --prefix vibecheck ...`.
+- This repository contains the VibeCheck VS Code extension directly at the repository root; run project commands from the repository root with `npm ...`.
 - VibeCheck provides local engineering confidence for AI-assisted coding. Preserve its local-first boundary: no hosted backend, telemetry pipeline, required network connection, or agent proxying.
 - Keep repository content, findings, verification output, and reports local. Codex or Claude may process repository content only for an explicit user-selected review or change-summary action.
 - Keep prompt text, assistant messages, transcripts, tool arguments, tool output, and provider credentials out of persistent extension state. The optional hook bridge must retain only bounded lifecycle metadata.
@@ -12,12 +12,12 @@
 ## Development and verification
 
 - Use Node.js 22 or later, npm, VS Code, and Git.
-- Run `npm --prefix vibecheck run check` for strict TypeScript type checking.
-- Run `npm --prefix vibecheck run test` for the compiled Node test suite. Tests execute against `dist/`, so changes to extension behavior should include or update the corresponding `vibecheck/test/*.test.cjs` coverage.
-- Run `npm --prefix vibecheck run coverage` when changing covered core behavior; it enforces the configured coverage thresholds.
-- Run `npm --prefix vibecheck run security` when dependency manifests change, and run `npm --prefix vibecheck run verify` before considering a change complete.
-- Use `npm --prefix vibecheck run package:vsix` to create the VSIX. It runs verification and writes the package under `vibecheck/packages/`.
-- For manual extension testing, open `vibecheck/` as the VS Code workspace and launch the `Run VibeCheck Extension` configuration (`F5`); the pre-launch task starts the TypeScript and esbuild watchers.
+- Run `npm run check` for strict TypeScript type checking.
+- Run `npm run test` for the compiled Node test suite. Tests execute against `dist/`, so changes to extension behavior should include or update the corresponding `test/*.test.cjs` coverage.
+- Run `npm run coverage` when changing covered core behavior; it enforces the configured coverage thresholds.
+- Run `npm run security` when dependency manifests change, and run `npm run verify` before considering a change complete.
+- Use `npm run package:vsix` to create the VSIX. It runs verification and writes the package under `packages/`.
+- For manual extension testing, open the repository root as the VS Code workspace and launch the `Run VibeCheck Extension` configuration (`F5`); the pre-launch task starts the TypeScript and esbuild watchers.
 
 ## Repository conventions
 

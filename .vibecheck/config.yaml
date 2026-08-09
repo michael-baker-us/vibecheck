@@ -1,51 +1,51 @@
 plans:
   include:
-    - vibecheck/PLAN.md
-    - vibecheck/plans/**/*.md
-    - vibecheck/docs/**/*plan*.md
-  active: vibecheck/PLAN.md
+    - PLAN.md
+    - plans/**/*.md
+    - docs/**/*plan*.md
+  active: PLAN.md
 
 verification:
   - name: typecheck
     category: quality
     required: true
-    command: npm --prefix vibecheck run check
+    command: npm run check
     invalidated_by:
-      - vibecheck/src/**
-      - vibecheck/tsconfig.json
-      - vibecheck/package.json
-      - vibecheck/package-lock.json
+      - src/**
+      - tsconfig.json
+      - package.json
+      - package-lock.json
 
   - name: tests
     category: tests
     required: true
-    command: npm --prefix vibecheck run test
+    command: npm run test
     invalidated_by:
-      - vibecheck/src/**
-      - vibecheck/test/**
-      - vibecheck/resources/**
-      - vibecheck/tsconfig.json
-      - vibecheck/package.json
-      - vibecheck/package-lock.json
+      - src/**
+      - test/**
+      - resources/**
+      - tsconfig.json
+      - package.json
+      - package-lock.json
 
   - name: core coverage
     category: coverage
     required: true
-    command: npm --prefix vibecheck run coverage
+    command: npm run coverage
     invalidated_by:
-      - vibecheck/src/**
-      - vibecheck/test/**
-      - vibecheck/resources/**
-      - vibecheck/tsconfig.json
-      - vibecheck/package.json
-      - vibecheck/package-lock.json
+      - src/**
+      - test/**
+      - resources/**
+      - tsconfig.json
+      - package.json
+      - package-lock.json
 
   - name: dependency security
     category: security
     required: true
-    command: npm --prefix vibecheck run security
+    command: npm run security
     invalidated_by:
-      - vibecheck/package.json
-      - vibecheck/package-lock.json
+      - package.json
+      - package-lock.json
 
 diff_expansion_threshold: 15

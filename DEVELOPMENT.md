@@ -19,7 +19,7 @@ tests against temporary Git repositories and isolated home directories.
 
 ## Run in an Extension Development Host
 
-1. Open `vibecheck` as the root folder in VS Code.
+1. Open the repository root folder in VS Code.
 2. Open **Run and Debug**.
 3. Select **Run VibeCheck Extension**.
 4. Press `F5`.

@@ -5,4 +5,13 @@ CLAUDE.local.md
 # Optional saved VibeCheck reports
 .vibecheck/reports/
 
+# Extension build and test artifacts
+node_modules/
+dist/
+*.vsix
+.vscode-test/
+coverage/
+.nyc_output/
+*.lcov
+
 .DS_Store

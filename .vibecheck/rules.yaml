@@ -1,17 +1,17 @@
 boundaries:
   - name: ui-does-not-read-repository-directly
-    from: vibecheck/src/ui/**
+    from: src/ui/**
     cannot_import:
-      - vibecheck/src/collectors/**
-      - vibecheck/src/config/**
-      - vibecheck/src/verification/**
+      - src/collectors/**
+      - src/config/**
+      - src/verification/**
 
   - name: domain-remains-independent
-    from: vibecheck/src/domain/**
+    from: src/domain/**
     cannot_import:
-      - vibecheck/src/adapters/**
-      - vibecheck/src/analyzers/**
-      - vibecheck/src/collectors/**
-      - vibecheck/src/config/**
-      - vibecheck/src/ui/**
-      - vibecheck/src/verification/**
+      - src/adapters/**
+      - src/analyzers/**
+      - src/collectors/**
+      - src/config/**
+      - src/ui/**
+      - src/verification/**
