@@ -18,6 +18,18 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /More actions/);
   assert.match(source, /Run code review/);
   assert.match(source, /Summarize changes/);
+  assert.match(
+    source,
+    /const qualityActions=el\('div','actions single-action'\).*button\('Run all checks','run-all',undefined,'primary'\).*gates\.content\.append\(qualityActions\)/,
+    "expected Quality to expose a full-width shared run-all action",
+  );
+  assert.match(source, /\.actions\.single-action \{ grid-template-columns: 1fr; \}/);
+  const runAllLabels = [...source.matchAll(/button\('([^']+)','run-all'/g)].map((match) => match[1]);
+  assert.deepEqual(runAllLabels, ["Run all checks", "Run all checks", "Run all checks"]);
+  const checkReportLabels = [...source.matchAll(/button\('([^']+)','check-output'/g)].map((match) => match[1]);
+  assert.deepEqual(checkReportLabels, ["View report", "View report"]);
+  assert.match(source, /button\('View check report','check-output-menu'/);
+  assert.match(source, /const gateOutcome = gate =>/);
   assert.match(source, /showView\('tools'\)/);
   assert.match(source, /pages\.tools\.append\(changeSummary\.card\)/);
   assert.match(source, /section\('Change summary','Markdown','tools:change-summary'/);

@@ -86,6 +86,6 @@ test("builds a concrete follow-up prompt and local review", () => {
   assert.match(report, /Provider: codex/);
   assert.match(report, /HIGH — Fallback can return stale state/);
   assert.match(report, /\| tests \| stale \|/);
-  assert.match(report, /11\/12 passed, 1 failed/);
+  assert.match(report, /11 of 12 tests passed \(91\.67%\)\. 1 test failed\./);
   assert.match(report, /1\.3 s/);
 });

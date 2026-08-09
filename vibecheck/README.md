@@ -75,7 +75,8 @@ before installing this package so only one Activity Bar entry is registered.
 1. Open a Git-backed workspace.
 2. Use Codex, Claude, or manual editing normally; use VS Code Source Control for files and diffs.
 3. Run a semantic review from **Review** and choose an explicit provider, model, and review depth.
-4. Run individual quality gates or **Run all checks** whenever you need current evidence.
+4. Run individual quality gates or **Run all checks** whenever you need current evidence, then use
+   **View report** for a plain-language result with the underlying command output.
 5. Inspect, accept, or dismiss high-signal deterministic findings in **Needs attention**.
 6. Create an evidence report or copy a concrete agent follow-up.
 7. Review repository agent capabilities and open or create their files under **Agent workspace**.
@@ -94,7 +95,8 @@ The Control Center is organized around four workflow-focused views:
   reviewed findings, and evidence export.
 - **Review:** live Codex or Claude activity, elapsed time, structured findings, evidence links,
   freshness, and a provider-neutral Markdown preview.
-- **Quality:** detailed quality-gate results, structured metrics, timestamps, output, and configuration.
+- **Quality:** plain-language quality-gate outcomes, structured metrics, timestamps, dedicated
+  Markdown reports, preserved raw output, and configuration.
 - **Tools:** change summaries, Codex and Claude account-limit snapshots, the active plan, repository
   agent capabilities, editable Balanced/Deep model routes, adapters, and local monitoring controls.
 
@@ -222,7 +224,8 @@ text or coverage-summary JSON, and npm-audit JSON or text. Use `npm audit --json
 the JSON package identifiers let VibeCheck distinguish newly introduced vulnerabilities from fixed
 ones even when the total count is unchanged. Coverage movement and security changes are calculated
 against the previous run of the same gate. Commands with unsupported output still receive normal
-pass/fail, freshness, timing, raw-output, and readiness behavior.
+pass/fail, freshness, timing, raw-output, and readiness behavior. Their reports explain the outcome
+and extract concise diagnostic highlights from failed output even when no specialized parser exists.
 
 Repository commands are never executed merely because the file exists. The exact command and
 working directory are shown for approval, and trust is invalidated when the command changes.
@@ -274,8 +277,10 @@ the current evidence. If underlying evidence changes, a new fingerprint can crea
 - **Failed:** it exited unsuccessfully or was interrupted.
 - **Stale:** it previously passed, but a relevant file was added, removed, or changed.
 
-The Markdown evidence report uses the same structured summaries shown in the Control Center and
-includes the execution timestamp and duration for each quality gate.
+The Markdown evidence report uses the same plain-language structured summaries shown in the Control
+Center. Each gate also has a dedicated Markdown report containing an interpretation, category-specific
+metrics, diagnostic highlights, execution metadata, the trusted command and invalidation scope, and
+the complete redacted raw output.
 
 A passing check is evidence for a particular repository state, not proof of complete product
 behavior.

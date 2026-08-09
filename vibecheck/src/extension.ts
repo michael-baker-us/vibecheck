@@ -23,6 +23,7 @@ import { DEFAULT_MODEL_ROUTING, MODEL_ROUTING_SETTINGS, ModelRouting, normalizeM
 import { buildMarkdownReport } from "./reports/markdown-report";
 import { buildCodeReviewMarkdown } from "./reports/code-review-markdown";
 import { buildChangeSummaryMarkdown } from "./reports/change-summary-markdown";
+import { buildVerificationReport } from "./reports/verification-markdown";
 import { CodeReviewService } from "./reviews/code-review-service";
 import { WorkspaceStore } from "./storage/workspace-store";
 import { ChangeSummaryService } from "./summaries/change-summary-service";
@@ -162,8 +163,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const snapshot = controller.getSnapshot();
       if (snapshot.kind !== "ready") return;
       const verification = snapshot.state.verification.find((item) => item.name === name);
-      output.appendLine(`\n[${name}]\n${verification?.output ?? "No output recorded."}`);
-      output.show(true);
+      if (!verification) {
+        void vscode.window.showInformationMessage(`No quality gate named “${name}” is available.`);
+        return;
+      }
+      const document = await vscode.workspace.openTextDocument({
+        language: "markdown",
+        content: buildVerificationReport(verification),
+      });
+      await vscode.window.showTextDocument(document, { preview: true });
+      await vscode.commands.executeCommand("markdown.showPreview", document.uri);
     }),
     vscode.commands.registerCommand("vibecheck.openConfig", () => openConfiguration(controller)),
     vscode.commands.registerCommand("vibecheck.createSetupPrompt", () =>
