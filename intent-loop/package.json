@@ -1,0 +1,118 @@
+{
+  "name": "intent-loop",
+  "displayName": "Intent Loop",
+  "description": "A local control center for AI-assisted coding.",
+  "version": "0.0.1",
+  "private": true,
+  "publisher": "local",
+  "license": "UNLICENSED",
+  "files": [
+    "dist/**",
+    "resources/**",
+    "DEVELOPMENT.md",
+    "PLAN.md"
+  ],
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "intentLoop.start",
+        "title": "Start Observing",
+        "category": "Intent Loop",
+        "icon": "$(play)"
+      },
+      {
+        "command": "intentLoop.pause",
+        "title": "Pause Observation",
+        "category": "Intent Loop",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "intentLoop.refresh",
+        "title": "Refresh Workspace State",
+        "category": "Intent Loop",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "intentLoop.reset",
+        "title": "Reset Baseline to HEAD",
+        "category": "Intent Loop"
+      },
+      {
+        "command": "intentLoop.deleteData",
+        "title": "Delete Local Observation Data",
+        "category": "Intent Loop"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "intent-loop",
+          "title": "Intent Loop",
+          "icon": "resources/intent-loop.svg"
+        }
+      ]
+    },
+    "views": {
+      "intent-loop": [
+        {
+          "id": "intentLoop.overview",
+          "name": "Workspace"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "intentLoop.refresh",
+          "when": "view == intentLoop.overview",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Intent Loop",
+      "properties": {
+        "intentLoop.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Begin local repository observation automatically in Git workspaces."
+        },
+        "intentLoop.refreshDebounceMs": {
+          "type": "number",
+          "default": 750,
+          "minimum": 100,
+          "maximum": 10000,
+          "description": "Delay before refreshing Git state after workspace file changes."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./",
+    "check": "tsc --noEmit -p ./",
+    "test": "npm run compile && node --test test/git-collector.test.cjs",
+    "verify": "npm run check && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.100.0",
+    "@vscode/vsce": "^3.9.2",
+    "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "minimatch": "^10.2.6",
+    "yaml": "^2.9.0"
+  }
+}
