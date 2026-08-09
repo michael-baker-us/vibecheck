@@ -3,8 +3,10 @@ const { readFileSync } = require("node:fs");
 const { join } = require("node:path");
 const test = require("node:test");
 
+const uiSource = (file) => readFileSync(join(__dirname, "..", "src", "ui", file), "utf8");
+
 test("ships a syntactically valid task-oriented Control Center", () => {
-  const source = readFileSync(join(__dirname, "..", "src", "ui", "control-center.ts"), "utf8");
+  const source = `${uiSource("control-center.ts")}\n${uiSource("control-center-view.ts")}`;
   const script = source.match(/<script nonce="\$\{nonce\}">([\s\S]*?)<\/script>/)?.[1];
 
   assert.ok(script, "expected an embedded webview script");
@@ -108,4 +110,18 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   ]) {
     assert.match(source, new RegExp(`['"]${action}['"]`), `expected ${action} to remain reachable`);
   }
+});
+
+test("keeps regex escapes intact through the webview template literal", () => {
+  const { controlCenterHtml } = require("../dist/ui/control-center-view");
+  const html = controlCenterHtml("vscode-webview://test");
+
+  // `\d` and `\.` inside a template literal silently lose their backslash unless doubled,
+  // which previously shipped `/^d{4}-d{2}-d{2}T/` and never matched an ISO timestamp.
+  assert.match(html, /const iso=\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}T\//);
+  assert.equal(html.split("/\\.[^/]+$/").length - 1, 2, "expected both file-extension tests to keep their escape");
+
+  const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
+  assert.ok(script, "expected an embedded webview script");
+  assert.doesNotThrow(() => new Function(script));
 });
