@@ -1,5 +1,21 @@
 # Intent Loop Implementation Plan
 
+## Implementation status — 2026-08-09
+
+Version 0.1.0 implements the complete local repository-mode vertical slice:
+
+- M0 repository observation, baseline state, native VS Code UI, and persistence;
+- M1 deterministic findings, provenance, lifecycle, diagnostics, and evidence navigation;
+- M2 trusted local verification, output redaction, input hashing, and freshness invalidation;
+- M3 working intent, follow-up prompts, finding resolution, and Markdown review export;
+- M4/M5 optional local Claude and Codex lifecycle adapters using bounded normalized JSONL events;
+- M6 configured path boundaries for relative TypeScript and JavaScript imports.
+
+Remaining work is product validation and hardening rather than missing core workflow: sustained
+dogfooding, VS Code-host integration automation, multi-root support, performance measurement on
+large repositories, richer language resolution, and adapter compatibility testing across agent
+releases.
+
 ## Objective
 
 Validate and build a local VS Code extension that observes AI-assisted repository changes, detects

@@ -2,13 +2,14 @@
   "name": "intent-loop",
   "displayName": "Intent Loop",
   "description": "A local control center for AI-assisted coding.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "publisher": "local",
   "license": "UNLICENSED",
   "files": [
     "dist/**",
     "resources/**",
+    "README.md",
     "DEVELOPMENT.md",
     "PLAN.md"
   ],
@@ -41,6 +42,86 @@
         "title": "Refresh Workspace State",
         "category": "Intent Loop",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "intentLoop.setIntent",
+        "title": "Set Working Intent",
+        "category": "Intent Loop",
+        "icon": "$(target)"
+      },
+      {
+        "command": "intentLoop.runVerification",
+        "title": "Run Verification",
+        "category": "Intent Loop",
+        "icon": "$(run)"
+      },
+      {
+        "command": "intentLoop.runAllVerification",
+        "title": "Run All Verification",
+        "category": "Intent Loop",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "intentLoop.showVerificationOutput",
+        "title": "Show Verification Output",
+        "category": "Intent Loop",
+        "icon": "$(output)"
+      },
+      {
+        "command": "intentLoop.inspectFinding",
+        "title": "Inspect Finding",
+        "category": "Intent Loop"
+      },
+      {
+        "command": "intentLoop.acceptFinding",
+        "title": "Accept as Intentional",
+        "category": "Intent Loop",
+        "icon": "$(pass)"
+      },
+      {
+        "command": "intentLoop.dismissFinding",
+        "title": "Dismiss Finding",
+        "category": "Intent Loop",
+        "icon": "$(close)"
+      },
+      {
+        "command": "intentLoop.reopenFinding",
+        "title": "Reopen Finding",
+        "category": "Intent Loop",
+        "icon": "$(history)"
+      },
+      {
+        "command": "intentLoop.copyPrompt",
+        "title": "Copy Suggested Agent Prompt",
+        "category": "Intent Loop",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "intentLoop.openConfig",
+        "title": "Open Local Configuration",
+        "category": "Intent Loop",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "intentLoop.exportReview",
+        "title": "Export Local Review",
+        "category": "Intent Loop",
+        "icon": "$(export)"
+      },
+      {
+        "command": "intentLoop.installCodexAdapter",
+        "title": "Install Local Codex Adapter",
+        "category": "Intent Loop"
+      },
+      {
+        "command": "intentLoop.installClaudeAdapter",
+        "title": "Install Local Claude Adapter",
+        "category": "Intent Loop"
+      },
+      {
+        "command": "intentLoop.uninstallAgentAdapter",
+        "title": "Remove Local Agent Adapter",
+        "category": "Intent Loop"
       },
       {
         "command": "intentLoop.reset",
@@ -76,6 +157,58 @@
           "command": "intentLoop.refresh",
           "when": "view == intentLoop.overview",
           "group": "navigation"
+        },
+        {
+          "command": "intentLoop.setIntent",
+          "when": "view == intentLoop.overview",
+          "group": "navigation@2"
+        },
+        {
+          "command": "intentLoop.runAllVerification",
+          "when": "view == intentLoop.overview",
+          "group": "navigation@3"
+        },
+        {
+          "command": "intentLoop.copyPrompt",
+          "when": "view == intentLoop.overview",
+          "group": "navigation@4"
+        },
+        {
+          "command": "intentLoop.openConfig",
+          "when": "view == intentLoop.overview",
+          "group": "navigation@5"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "intentLoop.copyPrompt",
+          "when": "view == intentLoop.overview && viewItem == intentLoop.finding.open",
+          "group": "inline@1"
+        },
+        {
+          "command": "intentLoop.acceptFinding",
+          "when": "view == intentLoop.overview && viewItem == intentLoop.finding.open",
+          "group": "intent@1"
+        },
+        {
+          "command": "intentLoop.dismissFinding",
+          "when": "view == intentLoop.overview && viewItem == intentLoop.finding.open",
+          "group": "intent@2"
+        },
+        {
+          "command": "intentLoop.reopenFinding",
+          "when": "view == intentLoop.overview && (viewItem == intentLoop.finding.accepted || viewItem == intentLoop.finding.dismissed || viewItem == intentLoop.finding.resolved)",
+          "group": "intent@1"
+        },
+        {
+          "command": "intentLoop.runVerification",
+          "when": "view == intentLoop.overview && viewItem == intentLoop.verification",
+          "group": "inline@1"
+        },
+        {
+          "command": "intentLoop.showVerificationOutput",
+          "when": "view == intentLoop.overview && viewItem == intentLoop.verification",
+          "group": "verification@1"
         }
       ]
     },
@@ -99,16 +232,19 @@
   },
   "scripts": {
     "clean": "rm -rf dist",
-    "compile": "tsc -p ./",
-    "watch": "tsc -w -p ./",
+    "compile": "tsc -p ./ && esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --sourcemap --outfile=dist/extension.js",
+    "watch": "concurrently --kill-others \"tsc -w --noEmit -p ./\" \"esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --sourcemap --outfile=dist/extension.js --watch\"",
     "check": "tsc --noEmit -p ./",
-    "test": "npm run compile && node --test test/git-collector.test.cjs",
-    "verify": "npm run check && npm test"
+    "test": "npm run compile && node --test test/*.test.cjs",
+    "verify": "npm run check && npm test",
+    "package:vsix": "npm run verify && vsce package --out intent-loop-0.1.0.vsix --allow-missing-repository --skip-license --no-dependencies --no-rewrite-relative-links"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.100.0",
     "@vscode/vsce": "^3.9.2",
+    "concurrently": "^10.0.4",
+    "esbuild": "^0.28.2",
     "typescript": "^5.8.0"
   },
   "dependencies": {

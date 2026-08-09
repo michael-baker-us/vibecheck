@@ -7,7 +7,7 @@ const test = require("node:test");
 
 const { GitCollector } = require("../dist/collectors/git-collector");
 
-test("discovers a repository and reports changes relative to the baseline", async (context) => {
+test("discovers a repository and captures content-aware changes", async (context) => {
   const repositoryRoot = mkdtempSync(join(tmpdir(), "intent-loop-git-"));
   context.after(() => rmSync(repositoryRoot, { recursive: true, force: true }));
 
@@ -29,13 +29,25 @@ test("discovers a repository and reports changes relative to the baseline", asyn
   const repository = await collector.discover(repositoryRoot);
   assert.equal(repository.root, realpathSync(repositoryRoot));
   assert.match(repository.head, /^[0-9a-f]{40}$/);
-  assert.deepEqual(await collector.listChangedPaths(repository.root, repository.head), []);
+  assert.deepEqual(await collector.collectChanges(repository.root, repository.head), []);
 
   writeFileSync(join(repositoryRoot, "tracked.txt"), "changed\n");
   writeFileSync(join(repositoryRoot, "untracked file.txt"), "new\n");
 
-  assert.deepEqual(await collector.listChangedPaths(repository.root, repository.head), [
-    "tracked.txt",
-    "untracked file.txt",
+  assert.deepEqual(await collector.collectChanges(repository.root, repository.head), [
+    {
+      path: "tracked.txt",
+      status: "modified",
+      binary: false,
+      before: "baseline\n",
+      after: "changed\n",
+    },
+    {
+      path: "untracked file.txt",
+      status: "added",
+      binary: false,
+      before: undefined,
+      after: "new\n",
+    },
   ]);
 });

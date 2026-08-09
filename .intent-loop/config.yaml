@@ -1,0 +1,20 @@
+verification:
+  - name: typecheck
+    command: npm --prefix intent-loop run check
+    invalidated_by:
+      - intent-loop/src/**
+      - intent-loop/tsconfig.json
+      - intent-loop/package.json
+      - intent-loop/package-lock.json
+
+  - name: tests
+    command: npm --prefix intent-loop run test
+    invalidated_by:
+      - intent-loop/src/**
+      - intent-loop/test/**
+      - intent-loop/resources/**
+      - intent-loop/tsconfig.json
+      - intent-loop/package.json
+      - intent-loop/package-lock.json
+
+diff_expansion_threshold: 25

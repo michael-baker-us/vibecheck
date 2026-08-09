@@ -1,0 +1,17 @@
+boundaries:
+  - name: ui-does-not-read-repository-directly
+    from: intent-loop/src/ui/**
+    cannot_import:
+      - intent-loop/src/collectors/**
+      - intent-loop/src/config/**
+      - intent-loop/src/verification/**
+
+  - name: domain-remains-independent
+    from: intent-loop/src/domain/**
+    cannot_import:
+      - intent-loop/src/adapters/**
+      - intent-loop/src/analyzers/**
+      - intent-loop/src/collectors/**
+      - intent-loop/src/config/**
+      - intent-loop/src/ui/**
+      - intent-loop/src/verification/**

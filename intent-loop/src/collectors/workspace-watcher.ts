@@ -9,12 +9,12 @@ export class WorkspaceWatcher implements vscode.Disposable {
   private timer: NodeJS.Timeout | undefined;
 
   public constructor(
-    workspaceFolder: vscode.WorkspaceFolder,
+    root: vscode.WorkspaceFolder | vscode.Uri,
     private readonly debounceMs: () => number,
     private readonly onChanged: () => void,
   ) {
     this.watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(workspaceFolder, "**/*"),
+      new vscode.RelativePattern(root, "**/*"),
     );
 
     this.watcher.onDidCreate((uri) => this.schedule(uri));
