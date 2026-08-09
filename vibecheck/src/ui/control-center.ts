@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { VibeCheckConfiguration } from "../domain/configuration";
 import { ChangeSummarySession } from "../domain/change-summary";
 import { ConfigurationSetupSession } from "../domain/configuration-setup";
+import { InstructionRefreshSession } from "../domain/instruction-refresh";
 import { AgentAlignmentSnapshot } from "../agent-instructions/alignment-service";
 import { categoryFor, calculateReadiness, missingRecommendedCategories } from "../domain/quality-gates";
 import { ObservationSnapshot } from "../domain/observation-state";
@@ -21,6 +22,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     private readonly getReviewTranscript: () => Array<{ at: string; kind: string; label: string; content?: string }>,
     private readonly getChangeSummarySession: () => ChangeSummarySession | undefined,
     private readonly getConfigurationSetupSession: () => ConfigurationSetupSession | undefined,
+    private readonly getInstructionRefreshSession: () => InstructionRefreshSession | undefined,
     private readonly getProviderUsage: () => ProviderUsageSnapshot,
     private readonly getAgentAlignment: () => AgentAlignmentSnapshot,
   ) {}
@@ -61,6 +63,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           reviewTranscript: this.getReviewTranscript(),
           changeSummarySession: this.getChangeSummarySession(),
           configurationSetupSession: this.getConfigurationSetupSession(),
+          instructionRefreshSession: this.getInstructionRefreshSession(),
           providerUsage: this.getProviderUsage(),
           agentAlignment: this.getAgentAlignment(),
           modelRouting: readModelRouting(),
@@ -113,6 +116,9 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       "install-claude": "vibecheck.installClaudeAdapter",
       "remove-adapter": "vibecheck.uninstallAgentAdapter",
       "initialize-agent-workspace": "vibecheck.initializeAgentWorkspace",
+      "refresh-agent-instructions": "vibecheck.refreshAgentInstructions",
+      "apply-agent-instructions": "vibecheck.applyAgentInstructionRefresh",
+      "discard-agent-instructions": "vibecheck.discardAgentInstructionRefresh",
       "align-agent-instructions": "vibecheck.alignAgentInstructions",
       delete: "vibecheck.deleteData",
       start: "vibecheck.start",
@@ -127,6 +133,10 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     if (snapshot.kind !== "ready" || !id) return;
     if (message.action === "manage-agent-file") {
       await vscode.commands.executeCommand("vibecheck.manageAgentFile", id);
+      return;
+    }
+    if (message.action === "preview-agent-instruction") {
+      await vscode.commands.executeCommand("vibecheck.previewAgentInstruction", id);
       return;
     }
     if (message.action === "inspect-review") {
@@ -450,7 +460,9 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     alignmentHead.append(el('span','item-title','Claude ↔ Codex compatibility'),el('span','badge '+(alignmentDrift?'incomplete':'ready'),alignmentDrift?alignmentDrift+' need review':'aligned'));
     alignment.append(alignmentHead,el('p','','VibeCheck shares provider-neutral plans, imports canonical AGENTS.md guidance into CLAUDE.md, and mirrors one-sided open-standard skills. Provider-specific schemas are flagged with the newer side instead of being overwritten.'));
     const alignmentToggle=el('label','check-field'),alignmentCheckbox=el('input',''); alignmentCheckbox.type='checkbox'; alignmentCheckbox.checked=data.alignAgentWorkspace===true; alignmentCheckbox.dataset.focusKey='agents:alignment'; alignmentCheckbox.onchange=()=>vscode.postMessage({action:'set-agent-alignment',options:alignmentCheckbox.checked}); alignmentToggle.append(alignmentCheckbox,el('span','','Continuously align safe, portable files in this workspace'));
-    const alignmentActions=el('div','item-actions'); alignmentActions.append(button('Initialize both','initialize-agent-workspace'),button('Align safe changes now','align-agent-instructions',undefined,'secondary')); alignment.append(alignmentToggle,alignmentActions);
+    const instructionSession=data.instructionRefreshSession,instructionRunning=instructionSession?.status==='running',instructionPreview=instructionSession?.status==='preview';
+    const alignmentActions=el('div','item-actions'),refreshInstructions=button(instructionRunning?'Analyzing instructions…':'Update from repository','refresh-agent-instructions',undefined,'primary'); refreshInstructions.disabled=instructionRunning; alignmentActions.append(refreshInstructions,button('Initialize both','initialize-agent-workspace'),button('Align safe changes now','align-agent-instructions',undefined,'secondary')); alignment.append(alignmentToggle,alignmentActions);
+    if(instructionSession){ const tone=instructionSession.status==='applied'?'ready':instructionSession.status==='failed'?'blocked':instructionSession.status==='preview'?'incomplete':'neutral',sessionItem=el('div','callout'),sessionHead=el('div','item-head'); sessionHead.append(el('strong','',(instructionSession.provider==='codex'?'Codex':'Claude')+' · '+instructionSession.profile+' instruction update'),el('span','badge '+tone,instructionSession.status)); sessionItem.append(sessionHead,el('div','meta',instructionSession.model+' · '+instructionSession.effort+' effort · started '+new Date(instructionSession.startedAt).toLocaleString())); if(instructionSession.summary)sessionItem.append(el('p','',instructionSession.summary)); if(instructionSession.error)sessionItem.append(el('p','danger',instructionSession.error)); (instructionSession.files||[]).forEach(file=>{ const fileRow=el('div','item'),head=el('div','item-head'); head.append(el('span','item-title',file.path),el('span','badge '+(file.status==='unchanged'?'ready':'incomplete'),file.status)); fileRow.append(head); if(instructionPreview&&file.status!=='unchanged'){ const actions=el('div','item-actions'); actions.append(button('Preview diff','preview-agent-instruction',file.path,'secondary')); fileRow.append(actions); } sessionItem.append(fileRow); }); if(instructionPreview){ const proposalActions=el('div','item-actions'); proposalActions.append(button('Apply proposed updates','apply-agent-instructions',undefined,'primary'),button('Discard','discard-agent-instructions',undefined,'ghost')); sessionItem.append(proposalActions); } alignment.append(sessionItem); const transcript=instructionSession.transcript||[]; if(transcript.length){ const terminal=el('div','review-terminal'),terminalHead=el('div','review-terminal-head'); terminalHead.append(el('strong','',instructionRunning?'Live CLI instruction audit':'CLI instruction audit transcript'),el('span','',instructionRunning?'streaming · memory only':'memory only')); terminal.append(terminalHead); transcript.forEach(entry=>{ const row=el('div','review-terminal-entry '+entry.kind),meta=el('div','review-terminal-meta'); meta.append(el('span','review-terminal-kind',entry.kind),el('time','',new Date(entry.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})),el('strong','',entry.label)); row.append(meta); if(entry.content)row.append(el('pre','',entry.content)); terminal.append(row); }); alignment.append(terminal); if(transcriptPinned)requestAnimationFrame(()=>{ terminal.scrollTop=terminal.scrollHeight; }); } }
     const alignmentItems=(data.agentAlignment?.items||[]).filter(item=>item.status!=='not-configured');
     alignmentItems.forEach(entry=>{ const row=el('div','callout'),head=el('div','item-head'),tone=entry.status==='aligned'||entry.status==='shared'?'ready':entry.status==='conflict'?'blocked':'incomplete'; head.append(el('strong','',entry.label),el('span','badge '+tone,entry.status)); row.append(head,el('div','meta',entry.surface+(entry.newer?' · '+entry.newer+' changed more recently':'')),el('p','',entry.detail)); const actions=el('div','item-actions'); if(entry.codexPath&&/\.[^/]+$/.test(entry.codexPath))actions.append(button('Open Codex file','manage-agent-file',entry.codexPath,'ghost')); if(entry.claudePath&&entry.claudePath!==entry.codexPath&&/\.[^/]+$/.test(entry.claudePath))actions.append(button('Open Claude file','manage-agent-file',entry.claudePath,'ghost')); if(entry.surface==='skills'&&entry.status==='conflict'){ actions.append(button('Use Codex version','resolve-agent-alignment',entry.id+'|codex','ghost'),button('Use Claude version','resolve-agent-alignment',entry.id+'|claude','ghost')); } if(actions.childElementCount)row.append(actions); alignment.append(row); });
     agents.content.append(alignment);

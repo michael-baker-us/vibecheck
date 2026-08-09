@@ -167,6 +167,30 @@
         "icon": "$(wand)"
       },
       {
+        "command": "vibecheck.refreshAgentInstructions",
+        "title": "Update Claude and Codex Instructions",
+        "category": "VibeCheck",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "vibecheck.previewAgentInstruction",
+        "title": "Preview Agent Instruction Update",
+        "category": "VibeCheck",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "vibecheck.applyAgentInstructionRefresh",
+        "title": "Apply Agent Instruction Update",
+        "category": "VibeCheck",
+        "icon": "$(check)"
+      },
+      {
+        "command": "vibecheck.discardAgentInstructionRefresh",
+        "title": "Discard Agent Instruction Update",
+        "category": "VibeCheck",
+        "icon": "$(close)"
+      },
+      {
         "command": "vibecheck.alignAgentInstructions",
         "title": "Align Claude and Codex Workspace",
         "category": "VibeCheck",
@@ -254,9 +278,14 @@
           "group": "3_configuration@2"
         },
         {
-          "command": "vibecheck.alignAgentInstructions",
+          "command": "vibecheck.refreshAgentInstructions",
           "when": "view == vibecheck.overview",
           "group": "3_configuration@3"
+        },
+        {
+          "command": "vibecheck.alignAgentInstructions",
+          "when": "view == vibecheck.overview",
+          "group": "3_configuration@4"
         }
       ]
     },

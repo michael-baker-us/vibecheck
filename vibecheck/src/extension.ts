@@ -6,6 +6,7 @@ import * as vscode from "vscode";
 import { AdapterInstaller, SupportedAgent } from "./adapters/adapter-installer";
 import { LocalEventReader } from "./adapters/local-event-reader";
 import { AgentInstructionAlignmentService } from "./agent-instructions/alignment-service";
+import { InstructionRefreshService } from "./agent-instructions/refresh-service";
 import { AnalysisEngine } from "./analyzers/analysis-engine";
 import { AgentFileCollector } from "./collectors/agent-file-collector";
 import { GitCollector } from "./collectors/git-collector";
@@ -15,10 +16,12 @@ import { ConfigurationSetupService } from "./config/configuration-setup-service"
 import { CodeReviewFinding, CodeReviewSelection } from "./domain/code-review";
 import { ChangeSummaryRange, ChangeSummarySession } from "./domain/change-summary";
 import { ConfigurationSetupSession } from "./domain/configuration-setup";
+import { InstructionFilePath, InstructionRefreshProposal, InstructionRefreshSession } from "./domain/instruction-refresh";
 import { Finding } from "./domain/findings";
 import { ObservationController } from "./observation-controller";
 import { buildFollowUpPrompt } from "./prompts/follow-up-builder";
 import { buildConfigurationSetupPrompt } from "./prompts/configuration-setup-builder";
+import { buildInstructionRefreshPrompt } from "./prompts/instruction-refresh-builder";
 import { DEFAULT_MODEL_ROUTING, MODEL_ROUTING_SETTINGS, ModelRouting, normalizeModelRouting } from "./providers/model-routing";
 import { buildMarkdownReport } from "./reports/markdown-report";
 import { buildCodeReviewMarkdown } from "./reports/code-review-markdown";
@@ -30,6 +33,7 @@ import { ChangeSummaryService } from "./summaries/change-summary-service";
 import { FindingDiagnostics } from "./ui/diagnostics";
 import { ControlCenterProvider } from "./ui/control-center";
 import { VibeCheckStatusBar } from "./ui/status-bar";
+import { INSTRUCTION_PREVIEW_SCHEME, InstructionPreviewProvider } from "./ui/instruction-preview-provider";
 import { ProviderUsageService } from "./usage/provider-usage-service";
 import { VerificationService } from "./verification/verification-service";
 
@@ -47,8 +51,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const changeSummaryService = new ChangeSummaryService();
   const configurationSetupService = new ConfigurationSetupService();
   const alignmentService = new AgentInstructionAlignmentService();
+  const instructionRefreshService = new InstructionRefreshService();
+  const instructionPreviewProvider = new InstructionPreviewProvider();
   let changeSummarySession: ChangeSummarySession | undefined;
   let configurationSetupSession: ConfigurationSetupSession | undefined;
+  let instructionRefreshSession: InstructionRefreshSession | undefined;
+  let instructionRefreshProposal: InstructionRefreshProposal | undefined;
   let providerUsage = usageService.emptySnapshot();
   let agentAlignment = alignmentService.emptySnapshot();
   const adapters = new AdapterInstaller(context.asAbsolutePath("resources/hook-bridge.cjs"));
@@ -63,6 +71,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => controller.getReviewTranscript(),
     () => changeSummarySession,
     () => configurationSetupSession,
+    () => instructionRefreshSession,
     () => providerUsage,
     () => agentAlignment,
   );
@@ -101,6 +110,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     diagnostics,
     controller,
     eventReader,
+    instructionPreviewProvider,
+    vscode.workspace.registerTextDocumentContentProvider(INSTRUCTION_PREVIEW_SCHEME, instructionPreviewProvider),
     vscode.window.registerWebviewViewProvider("vibecheck.overview", controlCenter, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
@@ -199,11 +210,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showInformationMessage(
           created.length
             ? `Initialized Claude and Codex workspace files: ${created.join(" and ")}. Continuous safe alignment is enabled.`
-            : "Claude and Codex workspace files already exist. Safe alignment is enabled and current.",
+            : "Claude and Codex workspace files already exist and are structurally aligned; their guidance was not regenerated. Use Update from repository to audit their contents.",
         );
       } catch (error) {
         void vscode.window.showErrorMessage(`Could not initialize the Claude and Codex workspace: ${String(error)}`);
       }
+    }),
+    vscode.commands.registerCommand("vibecheck.refreshAgentInstructions", () =>
+      refreshAgentInstructions(controller, instructionRefreshService, instructionPreviewProvider, (session, proposal) => {
+        instructionRefreshSession = session;
+        instructionRefreshProposal = proposal;
+        controlCenter.refresh();
+      })),
+    vscode.commands.registerCommand("vibecheck.previewAgentInstruction", (file?: InstructionFilePath) =>
+      previewAgentInstruction(instructionPreviewProvider, instructionRefreshProposal, file)),
+    vscode.commands.registerCommand("vibecheck.applyAgentInstructionRefresh", () =>
+      applyAgentInstructionRefresh(
+        controller,
+        instructionRefreshService,
+        instructionPreviewProvider,
+        instructionRefreshSession,
+        instructionRefreshProposal,
+        path.join(context.globalStorageUri.fsPath, "instruction-backups"),
+        refreshAgentAlignment,
+        (session, proposal) => {
+          instructionRefreshSession = session;
+          instructionRefreshProposal = proposal;
+          controlCenter.refresh();
+        },
+      )),
+    vscode.commands.registerCommand("vibecheck.discardAgentInstructionRefresh", () => {
+      if (!instructionRefreshSession || instructionRefreshSession.status !== "preview") return;
+      instructionRefreshSession = { ...instructionRefreshSession, status: "discarded", finishedAt: new Date().toISOString() };
+      instructionRefreshProposal = undefined;
+      instructionPreviewProvider.setProposal(undefined);
+      controlCenter.refresh();
     }),
     vscode.commands.registerCommand("vibecheck.alignAgentInstructions", () =>
       alignAgentWorkspace(controller, alignmentService, refreshAgentAlignment, true),
@@ -828,7 +869,7 @@ type ProviderModelChoice = CodeReviewSelection & vscode.QuickPickItem & { label:
 
 async function chooseProviderModel(
   title: string,
-  purpose: "review" | "summary" | "setup",
+  purpose: "review" | "summary" | "setup" | "instructions",
 ): Promise<ProviderModelChoice | undefined> {
   return vscode.window.showQuickPick<ProviderModelChoice>(
     providerModelChoices(purpose),
@@ -841,17 +882,21 @@ async function chooseProviderModel(
   );
 }
 
-function providerModelChoices(purpose: "review" | "summary" | "setup"): ProviderModelChoice[] {
+function providerModelChoices(purpose: "review" | "summary" | "setup" | "instructions"): ProviderModelChoice[] {
   const routing = getModelRouting();
   const balancedDetail = purpose === "summary"
     ? "Recommended for concise summaries with lower latency and cost."
     : purpose === "setup"
       ? "Recommended for routine repository inspection and configuration updates."
+      : purpose === "instructions"
+        ? "Recommended for routine repository instruction audits."
       : "Faster routine review with balanced capability and latency.";
   const deepDetail = purpose === "summary"
     ? "Higher-cost option for unusually large or complex comparisons."
     : purpose === "setup"
       ? "Quality-first configuration for large repositories or complex build systems."
+      : purpose === "instructions"
+        ? "Quality-first instruction audit for large repositories or complex architecture."
       : "Quality-first review for large, sensitive, or difficult changes.";
   return [
     { key: "codex-balanced", label: "Codex · Balanced (Default)", description: `${routing.codexBalanced} · medium effort`, detail: balancedDetail, provider: "codex", profile: "balanced", model: routing.codexBalanced, effort: "medium" },
@@ -1105,6 +1150,152 @@ async function runConfigurationSetup(
       }].slice(-100),
     });
     void vscode.window.showErrorMessage(`VibeCheck configuration failed: ${message}`);
+  }
+}
+
+async function refreshAgentInstructions(
+  controller: ObservationController,
+  service: InstructionRefreshService,
+  previewProvider: InstructionPreviewProvider,
+  onSessionChanged: (session: InstructionRefreshSession, proposal?: InstructionRefreshProposal) => void,
+): Promise<void> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready") return;
+  if (!vscode.workspace.isTrusted) {
+    void vscode.window.showWarningMessage("Trust this VS Code workspace before invoking an instruction provider.");
+    return;
+  }
+  const choice = await chooseProviderModel("Choose model to update Claude and Codex instructions", "instructions");
+  if (!choice) return;
+  const startedAt = new Date().toISOString();
+  let session: InstructionRefreshSession = {
+    provider: choice.provider,
+    profile: choice.profile,
+    model: choice.model,
+    effort: choice.effort,
+    status: "running",
+    startedAt,
+    transcript: [{
+      at: startedAt,
+      kind: "status",
+      label: `Starting ${choice.provider === "codex" ? "Codex" : "Claude"} instruction audit`,
+    }],
+    files: [],
+  };
+  previewProvider.setProposal(undefined);
+  const updateSession = (change: Partial<InstructionRefreshSession>, proposal?: InstructionRefreshProposal) => {
+    session = { ...session, ...change };
+    onSessionChanged(session, proposal);
+  };
+  updateSession({});
+  try {
+    const proposal = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `VibeCheck: Auditing instructions with ${choice.label}`,
+        cancellable: true,
+      },
+      async (progress, token) => {
+        const abort = new AbortController();
+        token.onCancellationRequested(() => abort.abort());
+        return service.propose(
+          choice,
+          snapshot.state.repositoryRoot,
+          buildInstructionRefreshPrompt(),
+          abort.signal,
+          (event) => progress.report({ message: event.detail ? `${event.label} · ${event.detail}` : event.label }),
+          (entry) => {
+            const previous = session.transcript.at(-1);
+            if (previous?.kind === entry.kind && previous.label === entry.label && previous.content === entry.content) return;
+            updateSession({ transcript: [...session.transcript, { ...entry, at: new Date().toISOString() }].slice(-100) });
+          },
+        );
+      },
+    );
+    previewProvider.setProposal(proposal);
+    updateSession({
+      status: "preview",
+      finishedAt: new Date().toISOString(),
+      summary: proposal.summary,
+      files: proposal.files.map(({ path: filePath, status }) => ({ path: filePath, status })),
+    }, proposal);
+    const firstChanged = proposal.files.find((file) => file.status !== "unchanged");
+    if (firstChanged) {
+      await previewAgentInstruction(previewProvider, proposal, firstChanged.path);
+      void vscode.window.showInformationMessage("Instruction update preview is ready. Review both file diffs before applying.");
+    } else {
+      void vscode.window.showInformationMessage("The existing Claude and Codex instructions already match the repository evidence.");
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    updateSession({
+      status: "failed",
+      finishedAt: new Date().toISOString(),
+      error: message,
+      transcript: [...session.transcript, {
+        at: new Date().toISOString(),
+        kind: "error" as const,
+        label: "Instruction audit stopped",
+        content: message,
+      }].slice(-100),
+    });
+    void vscode.window.showErrorMessage(`Instruction update failed: ${message}`);
+  }
+}
+
+async function previewAgentInstruction(
+  provider: InstructionPreviewProvider,
+  proposal: InstructionRefreshProposal | undefined,
+  file?: InstructionFilePath,
+): Promise<void> {
+  if (!proposal || (file !== "AGENTS.md" && file !== "CLAUDE.md")) return;
+  const entry = proposal.files.find((candidate) => candidate.path === file);
+  if (!entry) return;
+  await vscode.commands.executeCommand(
+    "vscode.diff",
+    provider.uri("original", file),
+    provider.uri("proposed", file),
+    `${file} — Current ↔ Proposed`,
+    { preview: true },
+  );
+}
+
+async function applyAgentInstructionRefresh(
+  controller: ObservationController,
+  service: InstructionRefreshService,
+  previewProvider: InstructionPreviewProvider,
+  session: InstructionRefreshSession | undefined,
+  proposal: InstructionRefreshProposal | undefined,
+  backupRoot: string,
+  refreshAlignment: () => Promise<void>,
+  onSessionChanged: (session: InstructionRefreshSession, proposal?: InstructionRefreshProposal) => void,
+): Promise<void> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready" || !session || session.status !== "preview" || !proposal) return;
+  const changed = proposal.files.filter((file) => file.status !== "unchanged").map((file) => file.path);
+  if (!changed.length) {
+    onSessionChanged({ ...session, status: "applied", finishedAt: new Date().toISOString() }, proposal);
+    return;
+  }
+  const choice = await vscode.window.showWarningMessage(
+    `Apply the reviewed updates to ${changed.join(" and ")}? Existing files will be backed up outside the repository.`,
+    { modal: true },
+    "Apply Updates",
+  );
+  if (choice !== "Apply Updates") return;
+  try {
+    const result = await service.apply(snapshot.state.repositoryRoot, proposal, backupRoot);
+    await controller.refresh();
+    await refreshAlignment();
+    previewProvider.setProposal(proposal);
+    onSessionChanged({ ...session, status: "applied", finishedAt: new Date().toISOString() }, proposal);
+    void vscode.window.showInformationMessage(
+      `Updated ${result.changedFiles.join(" and ")}.${result.backupDirectory ? ` Previous contents were backed up to ${result.backupDirectory}.` : ""}`,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    onSessionChanged({ ...session, status: "failed", finishedAt: new Date().toISOString(), error: message }, proposal);
+    void vscode.window.showErrorMessage(`Could not apply instruction updates: ${message}`);
   }
 }
 

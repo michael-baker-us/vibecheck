@@ -146,6 +146,15 @@ needed, creates or updates `CLAUDE.md` to import it, preserves existing Claude-s
 and enables continuous safe alignment. Native Codex and Claude `/init` remain supported: filesystem
 watching aligns safe changes and surfaces provider-specific additions for review.
 
+To refresh existing instructions from the repository's current architecture and workflows, select
+**Update from repository** in Agent Workspace or run **VibeCheck: Update Claude and Codex
+Instructions**. Choose a Balanced or Deep Claude/Codex model; the provider runs read-only and returns
+a structured proposal instead of editing files. VibeCheck shows the managed CLI transcript and a
+native side-by-side diff for each changed file. **Apply proposed updates** is the only write path: it
+rejects stale previews, backs up replaced files outside the repository, updates canonical
+`AGENTS.md`, and keeps `CLAUDE.md` importing shared guidance. You can discard the in-memory proposal
+without changing the workspace.
+
 ## Configuration
 
 Run **VibeCheck: Open Local Configuration** or create `.vibecheck/config.yaml`:
