@@ -2,3 +2,8 @@ node_modules/
 dist/
 *.vsix
 .vscode-test/
+
+# Local test and coverage artifacts
+coverage/
+.nyc_output/
+*.lcov
