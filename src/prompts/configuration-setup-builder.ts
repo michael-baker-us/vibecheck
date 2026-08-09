@@ -96,12 +96,27 @@ boundaries:
       - src/ui/**
 \`\`\`
 
+## Recommended gates
+
+VibeCheck treats **tests, coverage, and dependency security** as the recommended set and reports a
+repository as incomplete while any of them is missing, so do not skip one without saying why.
+
+Dependency security rarely needs a package script. In a repository with an npm lockfile,
+\`npm audit --json --audit-level=high\` is available immediately and needs no dependency; configure it
+as the security gate. Use the equivalent built-in audit command for whichever ecosystem the
+repository uses, when one exists that requires no installation.
+
+Coverage often does need a dependency, such as a coverage provider for the configured test runner.
+When a recommended gate cannot be configured without adding a dependency or a package script, leave
+it out of the YAML and state plainly in your summary which gate is missing, the single change that
+would enable it, and the exact command it would then use. Do not silently omit it.
+
 ## Decision rules
 
-1. Configure only commands that already exist and are appropriate to run from the repository root.
-2. Do not invent scripts, install packages, chain commands, or use destructive/network-mutating commands.
+1. Configure only commands that can already run in this repository. A command counts as available when it is a defined package script **or** a built-in command of a toolchain the repository already uses. It does not have to be a package script.
+2. Do not add package scripts, install packages, add dependencies, chain commands, or use destructive commands. Read-only network calls made by an existing audit command are acceptable.
 3. Prefer direct repository commands that enforce their own pass/fail policy.
-4. Include tests, coverage, security, quality, and build gates only when supported by repository evidence. Mark advisory checks with \`required: false\`.
+4. Mark advisory checks with \`required: false\`.
 5. Keep \`invalidated_by\` patterns narrow enough to avoid unnecessary reruns while covering relevant source, test, manifest, lock, and tool-configuration files.
 6. Include the repository's real Markdown plan locations. Set \`plans.active\` only when one durable shared plan is clearly canonical.
 7. Add boundary rules only when imports and directory ownership make the rule deterministic; do not encode guesses.
