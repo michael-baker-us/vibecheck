@@ -45,7 +45,7 @@ const RESPONSE_SCHEMA = {
     summary: { type: "string" },
     files: {
       type: "array",
-      minItems: 2,
+      minItems: 0,
       maxItems: 40,
       items: {
         type: "object",
@@ -63,6 +63,7 @@ const RESPONSE_SCHEMA = {
 } as const;
 
 export type InstructionRefreshProgress = { label: string; detail?: string };
+export type InstructionRefreshScope = "complete" | "supporting";
 export type InstructionRefreshRunner = (
   selection: CodeReviewSelection,
   repositoryRoot: string,
@@ -82,6 +83,7 @@ export class InstructionRefreshService {
     signal?: AbortSignal,
     onProgress?: (progress: InstructionRefreshProgress) => void,
     onTranscript?: (entry: Omit<CodeReviewTranscriptEntry, "at">) => void,
+    scope: InstructionRefreshScope = "complete",
   ): Promise<InstructionRefreshProposal> {
     const parsed = parseInstructionRefreshOutput(await this.runner(
       selection,
@@ -90,7 +92,7 @@ export class InstructionRefreshService {
       signal,
       onProgress,
       onTranscript,
-    ));
+    ), scope);
     const files = await Promise.all(parsed.files.map(async (file): Promise<InstructionRefreshFileProposal> => {
       const originalContent = await readOptional(path.join(repositoryRoot, file.path));
       return {
@@ -136,7 +138,7 @@ export class InstructionRefreshService {
   }
 }
 
-export function parseInstructionRefreshOutput(output: string): {
+export function parseInstructionRefreshOutput(output: string, scope: InstructionRefreshScope = "complete"): {
   summary: string;
   files: Array<{ path: InstructionFilePath; content: string; rationale: string }>;
 } {
@@ -150,7 +152,6 @@ export function parseInstructionRefreshOutput(output: string): {
   if (!isRecord(value)
     || typeof value.summary !== "string"
     || !Array.isArray(value.files)
-    || value.files.length < 2
     || value.files.length > 40) {
     throw new Error("The provider returned an invalid instruction proposal.");
   }
@@ -172,12 +173,16 @@ export function parseInstructionRefreshOutput(output: string): {
     if (!rationale) throw new Error(`The provider gave no rationale for ${candidate.path}.`);
     return { path: candidate.path, content, rationale };
   });
-  for (const required of REQUIRED_FILES) {
-    if (!seen.has(required)) throw new Error(`The provider proposal is missing required ${required}.`);
-  }
-  const claudeMarkdown = files.find((file) => file.path === "CLAUDE.md")!.content;
-  if (!/^\uFEFF?[ \t]*@AGENTS\.md[ \t]*(?:\n|$)/.test(claudeMarkdown)) {
-    throw new Error("The proposed CLAUDE.md does not begin by importing canonical @AGENTS.md guidance.");
+  if (scope === "complete") {
+    for (const required of REQUIRED_FILES) {
+      if (!seen.has(required)) throw new Error(`The provider proposal is missing required ${required}.`);
+    }
+    const claudeMarkdown = files.find((file) => file.path === "CLAUDE.md")!.content;
+    if (!/^\uFEFF?[ \t]*@AGENTS\.md[ \t]*(?:\n|$)/.test(claudeMarkdown)) {
+      throw new Error("The proposed CLAUDE.md does not begin by importing canonical @AGENTS.md guidance.");
+    }
+  } else if (files.some((file) => REQUIRED_FILES.includes(file.path as typeof REQUIRED_FILES[number]))) {
+    throw new Error("Supporting-file proposals must not include AGENTS.md or CLAUDE.md; initialize instructions separately.");
   }
   validatePortableSkillPairs(files);
   const totalBytes = files.reduce((total, file) => total + Buffer.byteLength(file.content, "utf8"), 0);

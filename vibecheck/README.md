@@ -140,13 +140,14 @@ The Agent Workspace panel shows every compatibility surface, its drift state, an
 has the newer copy. This makes provider switching quick while keeping deliberate provider-specific
 configuration intact.
 
-For new or existing repositories, select **Generate agent workspace** in Agent Workspace or run
-**VibeCheck: Generate Claude and Codex Workspace**. Choose a Balanced or Deep Claude/Codex model;
-the provider scans the repository read-only and proposes whichever supported workspace files are
-justified by current evidence. The catalog includes shared instructions, mirrored open-standard
-skills, Codex and Claude project settings, rules, subagents, hooks, MCP configuration, output styles,
-and plugin manifests when the repository is actually a plugin project. Personal/local files,
-credentials, deprecated Claude commands, invented hook scripts, and unrelated files are excluded.
+For new or reset repositories, **Initialize instructions** creates the core `AGENTS.md` / `CLAUDE.md`
+pair deterministically. **Generate supporting files** then lets you choose a Balanced or Deep
+Claude/Codex model; the provider scans the repository read-only and proposes justified skills,
+project settings, rules, subagents, hooks, MCP configuration, output styles, and plugin manifests.
+The supporting-file workflow deliberately excludes the two core instruction files. Existing
+per-file **Create** actions remain available when only one known file should be rebuilt. Personal
+files, credentials, deprecated Claude commands, invented hook scripts, and unrelated files are
+excluded from provider generation.
 
 VibeCheck shows one managed CLI transcript, the complete proposed file list with rationales, and
 native side-by-side diffs through **Preview all changes**. **Apply all proposed files** is the only
@@ -156,6 +157,11 @@ files outside the repository, and applies the reviewed set together. `AGENTS.md`
 the in-memory proposal without changing the workspace. Native Codex and Claude `/init` remain
 supported; filesystem watching aligns safe changes and surfaces provider-specific additions for
 review.
+
+**Clear agent workspace** disables continuous alignment, backs up every discovered Codex- and
+Claude-owned repository workspace file outside the repository, and then removes those files. The
+active Markdown plan and VibeCheck-owned `.vibecheck/*` configuration are preserved, allowing core
+instructions, individual files, or the supporting-file set to be regenerated independently.
 
 ## Configuration
 

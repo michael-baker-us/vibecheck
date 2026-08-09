@@ -191,6 +191,12 @@
         "icon": "$(sync)"
       },
       {
+        "command": "vibecheck.clearAgentWorkspace",
+        "title": "Clear Claude and Codex Workspace Files",
+        "category": "VibeCheck",
+        "icon": "$(trash)"
+      },
+      {
         "command": "vibecheck.installCodexAdapter",
         "title": "Install Local Codex Adapter",
         "category": "VibeCheck"

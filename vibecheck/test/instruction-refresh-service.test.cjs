@@ -52,6 +52,16 @@ test("prompt establishes the supported Agent Workspace catalog and prohibits wri
   assert.match(prompt, /do not create optional files merely because they are available/i);
 });
 
+test("supporting-file generation excludes core instructions and allows no optional files", () => {
+  const prompt = buildInstructionRefreshPrompt("supporting");
+  assert.match(prompt, /Do not include root `AGENTS\.md` or `CLAUDE\.md`/);
+  assert.deepEqual(parseInstructionRefreshOutput(JSON.stringify({
+    summary: "No supporting files are justified.",
+    files: [],
+  }), "supporting").files, []);
+  assert.throws(() => parseInstructionRefreshOutput(JSON.stringify(workspaceOutput()), "supporting"), /initialize instructions separately/);
+});
+
 test("parses direct and Claude-wrapped proposals and enforces the shared import", () => {
   const direct = parseInstructionRefreshOutput(JSON.stringify({
     summary: "Updated commands.",

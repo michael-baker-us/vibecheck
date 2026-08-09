@@ -1,12 +1,15 @@
-export function buildInstructionRefreshPrompt(): string {
+import type { InstructionRefreshScope } from "../agent-instructions/refresh-service";
+
+export function buildInstructionRefreshPrompt(scope: InstructionRefreshScope = "complete"): string {
+  const supportingOnly = scope === "supporting";
   return `# Generate the Claude and Codex agent workspace
 
-Inspect this repository as it exists now and propose the complete, evidence-backed Claude and Codex workspace it should have. Select useful files from the supported catalog; do not create optional files merely because they are available.
+Inspect this repository as it exists now and propose ${supportingOnly ? "the evidence-backed supporting Claude and Codex workspace files it should have" : "the complete, evidence-backed Claude and Codex workspace it should have"}. Select useful files from the supported catalog; do not create optional files merely because they are available.
 
 ## Output contract
 
 - Return every proposed file through the provided structured response schema with its repository-relative path, complete content, and a concise evidence-based rationale.
-- Always include root \`AGENTS.md\` and root \`CLAUDE.md\`, even when their proposed contents are unchanged.
+${supportingOnly ? "- Do not include root `AGENTS.md` or `CLAUDE.md`; VibeCheck initializes those core instruction files through a separate deterministic action. Return an empty files array when no supporting file is justified." : "- Always include root `AGENTS.md` and root `CLAUDE.md`, even when their proposed contents are unchanged."}
 - Do not edit, create, delete, rename, or format any files. This is a read-only preview; VibeCheck applies an approved proposal later.
 - Keep \`AGENTS.md\` provider-neutral and canonical for shared repository guidance.
 - Keep \`CLAUDE.md\` beginning with \`@AGENTS.md\`, followed only by genuinely Claude-specific guidance.

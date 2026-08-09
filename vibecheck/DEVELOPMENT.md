@@ -88,7 +88,11 @@ During a real agent task, check:
 - committing advances the monitored `HEAD` automatically without a separate lifecycle action;
 - Source Control remains the only changed-file and diff interface;
 - agent workspace files can be opened or deliberately created from the control center;
-- Generate agent workspace proposes only evidence-backed catalog files, shows all changed-file diffs,
+- Initialize instructions creates only the core shared instruction pair, while Generate supporting
+  files excludes that pair and proposes optional skills, prompts, agents, rules, hooks, and settings;
+- clearing the agent workspace lists the exact Codex/Claude files, backs them up outside the
+  repository, disables continuous alignment, and preserves `.vibecheck/*` plus the active plan;
+- Generate supporting files proposes only evidence-backed catalog files, shows all changed-file diffs,
   and changes nothing before Apply all proposed files is confirmed;
 - generated portable skills are identical Claude/Codex pairs, local-only files are excluded, and
   stale proposals or embedded JSON credentials are rejected;

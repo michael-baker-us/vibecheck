@@ -53,6 +53,11 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /summary\.section-head/);
   assert.match(source, /Claude ↔ Codex compatibility/);
   assert.match(source, /Continuously align safe, portable files in this workspace/);
+  assert.match(
+    source,
+    /entry\.surface==='plans'\)actions\.append\(button\('Open plan','open-plan',undefined,'ghost'\)\)/,
+    "expected the shared plan alignment action to use the active-plan command",
+  );
   assert.match(source, /Model routing/);
   assert.match(source, /Save model routes/);
   assert.match(source, /set-model-routing/);
@@ -60,7 +65,9 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /Agent-assisted setup and updates/);
   assert.match(source, /Live CLI configuration/);
   assert.match(source, /configurationSetupSession/);
-  assert.match(source, /Generate agent workspace/);
+  assert.match(source, /Initialize instructions/);
+  assert.match(source, /Generate supporting files/);
+  assert.match(source, /Clear agent workspace/);
   assert.match(source, /Apply all proposed files/);
   assert.match(source, /Preview all changes/);
   assert.match(source, /Live CLI workspace scan/);
@@ -75,7 +82,7 @@ test("ships a syntactically valid task-oriented Control Center", () => {
     "install-claude", "remove-adapter", "delete", "start", "manage-agent-file",
     "initialize-agent-workspace", "refresh-agent-instructions", "preview-agent-workspace", "preview-agent-instruction",
     "apply-agent-instructions", "discard-agent-instructions", "align-agent-instructions",
-    "set-agent-alignment", "resolve-agent-alignment",
+    "set-agent-alignment", "resolve-agent-alignment", "clear-agent-workspace",
     "inspect-review", "inspect-finding", "accept-finding", "dismiss-finding",
     "reopen-finding", "prompt-finding", "run-check", "check-output",
   ]) {

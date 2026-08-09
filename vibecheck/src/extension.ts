@@ -7,6 +7,7 @@ import { AdapterInstaller, SupportedAgent } from "./adapters/adapter-installer";
 import { LocalEventReader } from "./adapters/local-event-reader";
 import { AgentInstructionAlignmentService } from "./agent-instructions/alignment-service";
 import { InstructionRefreshService } from "./agent-instructions/refresh-service";
+import { AgentWorkspaceResetService } from "./agent-instructions/reset-service";
 import { AnalysisEngine } from "./analyzers/analysis-engine";
 import { AgentFileCollector } from "./collectors/agent-file-collector";
 import { GitCollector } from "./collectors/git-collector";
@@ -52,6 +53,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const configurationSetupService = new ConfigurationSetupService();
   const alignmentService = new AgentInstructionAlignmentService();
   const instructionRefreshService = new InstructionRefreshService();
+  const agentWorkspaceResetService = new AgentWorkspaceResetService();
   const instructionPreviewProvider = new InstructionPreviewProvider();
   let changeSummarySession: ChangeSummarySession | undefined;
   let configurationSetupSession: ConfigurationSetupSession | undefined;
@@ -214,6 +216,46 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       } catch (error) {
         void vscode.window.showErrorMessage(`Could not initialize the Claude and Codex workspace: ${String(error)}`);
+      }
+    }),
+    vscode.commands.registerCommand("vibecheck.clearAgentWorkspace", async () => {
+      const snapshot = controller.getSnapshot();
+      if (snapshot.kind !== "ready") return;
+      const files = snapshot.state.agentFiles
+        .filter((file) => file.exists && (file.owner === "codex" || file.owner === "claude"))
+        .map((file) => file.path)
+        .sort();
+      if (!files.length) {
+        void vscode.window.showInformationMessage("No Codex or Claude repository workspace files are present.");
+        return;
+      }
+      const choice = await vscode.window.showWarningMessage(
+        `Remove all ${files.length} discovered Codex and Claude repository workspace files? VibeCheck configuration and the active plan will remain.`,
+        { modal: true, detail: `A recoverable backup will be created outside the repository before removal.\n\n${files.join("\n")}` },
+        "Back Up and Remove Files",
+      );
+      if (choice !== "Back Up and Remove Files") return;
+      try {
+        await vscode.workspace.getConfiguration("vibecheck", workspaceFolder.uri).update(
+          "alignAgentWorkspace",
+          false,
+          vscode.ConfigurationTarget.Workspace,
+        );
+        const result = await agentWorkspaceResetService.reset(
+          snapshot.state.repositoryRoot,
+          files,
+          path.join(context.globalStorageUri.fsPath, "workspace-reset-backups"),
+        );
+        instructionRefreshSession = undefined;
+        instructionRefreshProposal = undefined;
+        instructionPreviewProvider.setProposal(undefined);
+        await controller.refresh();
+        await refreshAgentAlignment();
+        void vscode.window.showInformationMessage(
+          `Removed ${result.removedFiles.length} Agent Workspace file${result.removedFiles.length === 1 ? "" : "s"}. Backup: ${result.backupDirectory}`,
+        );
+      } catch (error) {
+        void vscode.window.showErrorMessage(`Could not clear the Agent Workspace: ${String(error)}`);
       }
     }),
     vscode.commands.registerCommand("vibecheck.refreshAgentInstructions", () =>
@@ -1165,7 +1207,7 @@ async function refreshAgentInstructions(
     void vscode.window.showWarningMessage("Trust this VS Code workspace before invoking an instruction provider.");
     return;
   }
-  const choice = await chooseProviderModel("Choose model to generate the Claude and Codex workspace", "instructions");
+  const choice = await chooseProviderModel("Choose model to generate supporting Claude and Codex files", "instructions");
   if (!choice) return;
   const startedAt = new Date().toISOString();
   let session: InstructionRefreshSession = {
@@ -1192,7 +1234,7 @@ async function refreshAgentInstructions(
     const proposal = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `VibeCheck: Generating agent workspace with ${choice.label}`,
+        title: `VibeCheck: Generating supporting workspace files with ${choice.label}`,
         cancellable: true,
       },
       async (progress, token) => {
@@ -1201,7 +1243,7 @@ async function refreshAgentInstructions(
         return service.propose(
           choice,
           snapshot.state.repositoryRoot,
-          buildInstructionRefreshPrompt(),
+          buildInstructionRefreshPrompt("supporting"),
           abort.signal,
           (event) => progress.report({ message: event.detail ? `${event.label} · ${event.detail}` : event.label }),
           (entry) => {
@@ -1209,6 +1251,7 @@ async function refreshAgentInstructions(
             if (previous?.kind === entry.kind && previous.label === entry.label && previous.content === entry.content) return;
             updateSession({ transcript: [...session.transcript, { ...entry, at: new Date().toISOString() }].slice(-100) });
           },
+          "supporting",
         );
       },
     );
