@@ -7,6 +7,7 @@ import { AdapterInstaller, SupportedAgent } from "./adapters/adapter-installer";
 import { LocalEventReader } from "./adapters/local-event-reader";
 import { AgentInstructionAlignmentService } from "./agent-instructions/alignment-service";
 import { InstructionRefreshService } from "./agent-instructions/refresh-service";
+import { AgentPermissionGrants } from "./providers/claude-cli";
 import { buildAgentCapabilityTemplate, isAgentCapabilityTemplateId } from "./agent-instructions/capability-template";
 import { AgentWorkspaceResetService } from "./agent-instructions/reset-service";
 import { AnalysisEngine } from "./analyzers/analysis-engine";
@@ -54,9 +55,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const usageService = new ProviderUsageService();
   const changeSummaryService = new ChangeSummaryService();
   const readmeMaintenanceService = new ReadmeMaintenanceService();
-  const configurationSetupService = new ConfigurationSetupService();
   const alignmentService = new AgentInstructionAlignmentService();
-  const instructionRefreshService = new InstructionRefreshService();
   const agentWorkspaceResetService = new AgentWorkspaceResetService();
   const instructionPreviewProvider = new InstructionPreviewProvider();
   let changeSummarySession: ChangeSummarySession | undefined;
@@ -70,6 +69,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const statusBar = new VibeCheckStatusBar();
   const diagnostics = new FindingDiagnostics();
   let controller: ObservationController;
+  /**
+   * Permissions resolved when a provider session starts. A non-interactive Claude run cannot ask
+   * for approval, so anything not granted here fails outright instead of prompting. Verification
+   * commands are included by default because they are repository-owned and already trusted.
+   */
+  const agentGrants = (): AgentPermissionGrants => {
+    const settings = vscode.workspace.getConfiguration(
+      "vibecheck",
+      vscode.workspace.workspaceFolders?.[0]?.uri,
+    );
+    return {
+      commands: settings.get<string[]>("agentAllowedCommands", []),
+      verificationCommands: settings.get<boolean>("agentMayRunVerificationCommands", true)
+        ? controller.getConfiguration().verification.map((definition) => definition.command)
+        : [],
+    };
+  };
+  const configurationSetupService = new ConfigurationSetupService(undefined, undefined, agentGrants);
+  const instructionRefreshService = new InstructionRefreshService(undefined, agentGrants);
   let refreshAgentAlignment: () => Promise<void> = async () => undefined;
   const controlCenter = new ControlCenterProvider(
     () => controller.getSnapshot(),

@@ -3,6 +3,12 @@ import { readdir, readFile } from "node:fs/promises";
 import * as path from "node:path";
 
 import { ConfigLoader } from "./config-loader";
+import {
+  AgentPermissionGrants,
+  CLAUDE_EDITING_TOOLS,
+  NO_AGENT_GRANTS,
+  claudeTools,
+} from "../providers/claude-cli";
 import { CodeReviewSelection, CodeReviewTranscriptEntry } from "../domain/code-review";
 import { ConfigurationSetupResult } from "../domain/configuration-setup";
 import { normalizeReviewTranscriptEvent } from "../reviews/code-review-service";
@@ -25,6 +31,7 @@ export class ConfigurationSetupService {
   public constructor(
     private readonly configLoader = new ConfigLoader(),
     private readonly runner: ConfigurationProviderRunner = runProvider,
+    private readonly grants: () => AgentPermissionGrants = () => NO_AGENT_GRANTS,
   ) {}
 
   public async run(
@@ -39,7 +46,7 @@ export class ConfigurationSetupService {
     const alternateBefore = await this.readAlternateConfigurationFiles(repositoryRoot);
     const args = selection.provider === "codex"
       ? codexConfigurationSetupArguments(selection, prompt)
-      : claudeConfigurationSetupArguments(selection, prompt);
+      : claudeConfigurationSetupArguments(selection, prompt, this.grants());
     await this.runner(selection.provider, args, repositoryRoot, signal, onProgress, onTranscript);
 
     const after = await this.readConfigurationFiles(repositoryRoot);
@@ -101,12 +108,13 @@ export function codexConfigurationSetupArguments(
 export function claudeConfigurationSetupArguments(
   selection: CodeReviewSelection,
   prompt: string,
+  grants: AgentPermissionGrants = NO_AGENT_GRANTS,
 ): string[] {
   return [
     "--print", "--model", selection.model, "--effort", selection.effort,
     "--output-format", "stream-json", "--verbose",
     "--permission-mode", "acceptEdits",
-    "--allowed-tools", "Read,Grep,Glob,Write,Edit,Bash(git status *),Bash(git diff *),Bash(git ls-files *),Bash(npm run *),Bash(yarn *),Bash(pnpm *),Bash(bun run *)",
+    "--allowed-tools", claudeTools(CLAUDE_EDITING_TOOLS, grants),
     "--no-session-persistence", prompt,
   ];
 }

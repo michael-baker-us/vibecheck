@@ -2,7 +2,7 @@
   "name": "vibecheck",
   "displayName": "VibeCheck",
   "description": "Local engineering confidence for AI-assisted coding.",
-  "version": "0.6.11",
+  "version": "0.6.12",
   "private": true,
   "publisher": "local",
   "license": "UNLICENSED",
@@ -333,6 +333,21 @@
           "default": false,
           "scope": "resource",
           "description": "Continuously align safe, portable Claude and Codex repository files. Shared instructions and one-sided open-standard skills sync automatically; incompatible provider-specific schemas are flagged for review."
+        },
+        "vibecheck.agentMayRunVerificationCommands": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Allow Codex and Claude sessions to run the verification commands already configured in .vibecheck/config.yaml. These commands are repository-owned and individually trusted; granting them ahead of time stops a session stalling on a permission it cannot ask you about."
+        },
+        "vibecheck.agentAllowedCommands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "description": "Additional shell command patterns Codex and Claude sessions may run without prompting, for example \"npm test\" or \"pytest *\". Trailing * matches any arguments. Reading files, listing directories, searching, and inspecting Git history are always permitted."
         },
         "vibecheck.codexBalancedModel": {
           "type": "string",

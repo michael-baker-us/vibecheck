@@ -38,7 +38,10 @@ test("runs instruction generation in read-only structured-output mode", () => {
   assert.equal(codex.at(-1), "audit");
 
   const claude = claudeInstructionRefreshArguments({ ...selection, provider: "claude" }, "audit");
-  assert.ok(claude.includes("plan"));
+  // Read-only comes from withholding the write tools, not from plan mode: plan mode drives a
+  // non-interactive run toward ExitPlanMode, which is not an allowed tool and fails the session.
+  assert.ok(claude.includes("dontAsk"));
+  assert.ok(!claude.includes("plan"));
   assert.ok(claude.includes("--json-schema"));
   assert.doesNotMatch(claude.join(" "), /Write|Edit/);
   assert.equal(claude.at(-1), "audit");

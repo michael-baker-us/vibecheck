@@ -1,4 +1,5 @@
 import { VibeCheckConfiguration } from "../domain/configuration";
+import { CLAUDE_TOOL_GUIDANCE } from "../providers/claude-cli";
 
 export function buildConfigurationSetupPrompt(
   configuration: VibeCheckConfiguration,
@@ -107,5 +108,7 @@ boundaries:
 8. Keep YAML concise, parseable, and free of provider-specific instructions.
 9. Preserve the existing \`diff_expansion_threshold\`. When creating a new configuration use \`15\`; change it only when repository evidence demonstrates why another value is appropriate, and explain that evidence.
 
-After editing, re-read the exact files from disk and parse them with an available YAML parser. Fix all syntax or schema errors before finishing. Summarize only the fields actually changed, explain the evidence for each change, and list anything important you intentionally left unconfigured. Do not print the entire YAML unless you were unable to edit the files. Do not claim commands pass unless you actually ran them and report that separately.`;
+${CLAUDE_TOOL_GUIDANCE}
+
+After editing, re-read the exact files from disk to confirm their content. VibeCheck parses and validates them against this schema when the session ends and reports any error, so do not run a YAML parser, interpreter, or validation script yourself. Summarize only the fields actually changed, explain the evidence for each change, and list anything important you intentionally left unconfigured. Do not print the entire YAML unless you were unable to edit the files. Do not claim commands pass unless you actually ran them and report that separately.`;
 }

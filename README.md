@@ -92,6 +92,17 @@ Use **Run Code Review** and choose a configured provider/profile. Semantic revie
 
 Because the selected provider may process repository content through its configured service, use this workflow only when that processing is appropriate for the repository.
 
+### Grant provider permissions ahead of time
+
+Codex and Claude enforce permissions differently. Codex runs inside a sandbox and may run anything the sandbox allows; Claude is deny-by-default and matches each command against an allowlist. Provider sessions are non-interactive, so a command outside the allowlist fails rather than prompting.
+
+Reading files, listing directories, searching, and inspecting Git history are always permitted. Two settings grant more, before a session starts:
+
+- `vibecheck.agentMayRunVerificationCommands` (default `true`) grants the verification commands already configured in `.vibecheck/config.yaml`. These are repository-owned and individually trusted, and are granted verbatim rather than as prefixes.
+- `vibecheck.agentAllowedCommands` grants additional patterns, for example `npm test` or `pytest *`. A trailing `*` matches any arguments.
+
+Compound commands joined with `;`, `&&`, or `||` are rejected when any part is not permitted, and interpreters such as `node -e` and `python3 -c` are never granted. VibeCheck validates generated `.vibecheck/` YAML against its own schema after a session ends, so agents are not asked to run a parser themselves.
+
 ### Generate developer-facing artifacts
 
 The Control Center can create local Markdown change summaries and evidence reports. It can also request a provider-generated README or reviewed Claude/Codex workspace-file proposal. Generated instruction/supporting-file changes are previewed and applied only through an explicit action; stale proposals and embedded JSON credentials are rejected.
@@ -162,6 +173,8 @@ The extension also contributes these VS Code settings:
 | `vibecheck.autoStart` | `true` | Start local observation automatically in Git workspaces. |
 | `vibecheck.refreshDebounceMs` | `750` | Delay before refreshing state after workspace changes. |
 | `vibecheck.alignAgentWorkspace` | `false` | Continuously align safe portable Claude/Codex workspace files. |
+| `vibecheck.agentMayRunVerificationCommands` | `true` | Let provider sessions run the verification commands configured in `.vibecheck/config.yaml`. |
+| `vibecheck.agentAllowedCommands` | `[]` | Additional shell command patterns provider sessions may run, e.g. `npm test`, `pytest *`. |
 | `vibecheck.codexBalancedModel` | `gpt-5.6-terra` | Codex model for Balanced provider workflows. |
 | `vibecheck.codexDeepModel` | `gpt-5.6-sol` | Codex model for Deep provider workflows. |
 | `vibecheck.claudeBalancedModel` | `claude-sonnet-5` | Claude model for Balanced provider workflows. |
@@ -184,7 +197,7 @@ npm run package:vsix
 Install a locally packaged build with:
 
 ```bash
-code --install-extension packages/vibecheck-0.6.10.vsix --force
+code --install-extension packages/vibecheck-0.6.12.vsix --force
 ```
 
 Reload the target VS Code window after installation.

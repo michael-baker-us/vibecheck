@@ -20,7 +20,7 @@ test("builds a provider-neutral bounded VibeCheck setup prompt", () => {
   assert.match(prompt, /Edit the files directly/);
   assert.match(prompt, /only VibeCheck configuration directory/);
   assert.match(prompt, /Preserve the existing `diff_expansion_threshold`/);
-  assert.match(prompt, /re-read the exact files from disk and parse them/);
+  assert.match(prompt, /re-read the exact files from disk to confirm their content/);
   assert.match(prompt, /\.vibecheck\/config\.yaml/);
   assert.doesNotMatch(prompt, /Claude-specific|Codex-specific/);
 });

@@ -14,6 +14,12 @@ import {
   InstructionRefreshScope,
 } from "../domain/instruction-refresh";
 import { normalizeReviewTranscriptEvent } from "../reviews/code-review-service";
+import {
+  AgentPermissionGrants,
+  CLAUDE_INSPECTION_TOOLS,
+  NO_AGENT_GRANTS,
+  claudeTools,
+} from "../providers/claude-cli";
 
 const TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
@@ -71,10 +77,14 @@ export type InstructionRefreshRunner = (
   signal?: AbortSignal,
   onProgress?: (progress: InstructionRefreshProgress) => void,
   onTranscript?: (entry: Omit<CodeReviewTranscriptEntry, "at">) => void,
+  grants?: AgentPermissionGrants,
 ) => Promise<string>;
 
 export class InstructionRefreshService {
-  public constructor(private readonly runner: InstructionRefreshRunner = runProvider) {}
+  public constructor(
+    private readonly runner: InstructionRefreshRunner = runProvider,
+    private readonly grants: () => AgentPermissionGrants = () => NO_AGENT_GRANTS,
+  ) {}
 
   public async propose(
     selection: CodeReviewSelection,
@@ -92,6 +102,7 @@ export class InstructionRefreshService {
       signal,
       onProgress,
       onTranscript,
+      this.grants(),
     ), scope);
     const files = await Promise.all(parsed.files.map(async (file): Promise<InstructionRefreshFileProposal> => {
       const originalContent = await readOptional(path.join(repositoryRoot, file.path));
@@ -208,13 +219,17 @@ export function codexInstructionRefreshArguments(
   ];
 }
 
-export function claudeInstructionRefreshArguments(selection: CodeReviewSelection, prompt: string): string[] {
+export function claudeInstructionRefreshArguments(
+  selection: CodeReviewSelection,
+  prompt: string,
+  grants: AgentPermissionGrants = NO_AGENT_GRANTS,
+): string[] {
   return [
     "--print", "--model", selection.model, "--effort", selection.effort,
     "--output-format", "stream-json", "--verbose",
     "--json-schema", JSON.stringify(RESPONSE_SCHEMA),
-    "--permission-mode", "plan",
-    "--allowed-tools", "Read,Grep,Glob,Bash(git status *),Bash(git diff *),Bash(git ls-files *),Bash(npm run *),Bash(yarn *),Bash(pnpm *),Bash(bun run *)",
+    "--permission-mode", "dontAsk",
+    "--allowed-tools", claudeTools(CLAUDE_INSPECTION_TOOLS, grants),
     "--no-session-persistence", prompt,
   ];
 }
@@ -226,6 +241,7 @@ async function runProvider(
   signal?: AbortSignal,
   onProgress?: (progress: InstructionRefreshProgress) => void,
   onTranscript?: (entry: Omit<CodeReviewTranscriptEntry, "at">) => void,
+  grants: AgentPermissionGrants = NO_AGENT_GRANTS,
 ): Promise<string> {
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "vibecheck-instructions-"));
   try {
@@ -236,7 +252,7 @@ async function runProvider(
       selection.provider,
       selection.provider === "codex"
         ? codexInstructionRefreshArguments(selection, schemaPath, resultPath, prompt)
-        : claudeInstructionRefreshArguments(selection, prompt),
+        : claudeInstructionRefreshArguments(selection, prompt, grants),
       repositoryRoot,
       signal,
       onProgress,
