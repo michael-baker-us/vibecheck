@@ -2,7 +2,7 @@
   "name": "vibecheck",
   "displayName": "VibeCheck",
   "description": "Local engineering confidence for AI-assisted coding.",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "private": true,
   "publisher": "local",
   "license": "UNLICENSED",
@@ -317,7 +317,7 @@
     "coverage": "npm run compile && c8 --all --check-coverage --lines 80 --functions 75 --branches 60 --statements 80 --include='dist/adapters/adapter-installer.js' --include='dist/agent-instructions/**/*.js' --include='dist/analyzers/**/*.js' --include='dist/collectors/agent-file-collector.js' --include='dist/collectors/git-collector.js' --include='dist/collectors/plan-collector.js' --include='dist/config/**/*.js' --include='dist/domain/plans.js' --include='dist/domain/quality-gates.js' --include='dist/prompts/**/*.js' --include='dist/reports/**/*.js' --include='dist/verification/**/*.js' --reporter=text node --test test/*.test.cjs",
     "security": "npm audit --json --audit-level=high",
     "verify": "npm run check && npm run coverage",
-    "package:vsix": "npm run verify && mkdir -p packages && vsce package --out packages/vibecheck-0.6.9.vsix --allow-missing-repository --skip-license --no-dependencies --no-rewrite-relative-links"
+    "package:vsix": "npm run verify && mkdir -p packages && vsce package --out packages/vibecheck-${npm_package_version}.vsix --allow-missing-repository --skip-license --no-dependencies --no-rewrite-relative-links"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

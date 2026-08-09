@@ -60,7 +60,7 @@ rotated at 5 MB with one previous segment.
 npm install
 npm run verify
 npm run package:vsix
-code --install-extension packages/vibecheck-0.6.9.vsix --force
+code --install-extension packages/vibecheck-0.6.10.vsix --force
 ```
 
 Reload VS Code and open the VibeCheck icon in the Activity Bar.

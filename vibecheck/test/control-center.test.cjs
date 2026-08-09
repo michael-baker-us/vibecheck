@@ -48,6 +48,8 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /Agent-assisted setup and updates/);
   assert.match(source, /Live CLI configuration/);
   assert.match(source, /configurationSetupSession/);
+  assert.doesNotMatch(source, /product-bar|brand-mark|brand-context/);
+  assert.doesNotMatch(source, /button\('Refresh','refresh'/);
 
   for (const action of [
     "select-plan", "open-plan", "refresh", "refresh-provider-usage", "pause", "resume",

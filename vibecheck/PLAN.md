@@ -2,8 +2,9 @@
 
 ## Implementation status — 2026-08-09
 
-Version 0.6.9 standardizes the VibeCheck identity across the project directory, extension ID,
-command and settings namespace, workspace-state keys, configuration paths, and local adapter data.
+Version 0.6.10 standardizes the VibeCheck identity across the project directory, extension ID,
+command and settings namespace, workspace-state keys, configuration paths, local adapter data, and
+Activity Bar branding.
 
 Version 0.4.0 implements the complete local repository-mode vertical slice and its first
 product-facing control center:

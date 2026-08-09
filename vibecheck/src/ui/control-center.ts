@@ -173,12 +173,6 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     button:disabled { cursor: default; opacity:.62; }
     button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:2px; }
     .shell { display: grid; gap: 11px; max-width: 900px; margin: 0 auto; padding:12px; }
-    .product-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; min-width:0; }
-    .brand { display:flex; align-items:center; gap:8px; min-width:0; }
-    .brand-mark { display:grid; place-items:center; width:28px; height:28px; border:1px solid color-mix(in srgb,var(--vscode-button-background) 58%,var(--panel-border)); border-radius:8px; color:var(--vscode-button-foreground); background:linear-gradient(145deg,var(--vscode-button-background),color-mix(in srgb,var(--vscode-button-background) 72%,var(--panel-background))); font-weight:800; box-shadow:0 2px 8px color-mix(in srgb,var(--vscode-button-background) 22%,transparent); }
-    .brand-copy { min-width:0; }
-    .brand-name { font-size:13px; font-weight:700; }
-    .brand-context { color:var(--panel-muted); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .nav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px; padding:3px; border:1px solid var(--panel-border); border-radius:8px; background:var(--panel-surface); position:sticky; top:0; z-index:5; box-shadow:0 5px 14px color-mix(in srgb,var(--panel-background) 72%,transparent); }
     .nav-btn { min-width:0; min-height:32px; padding:6px 4px; border:1px solid transparent; border-radius:5px; color:var(--panel-muted); background:transparent; font-size:11px; overflow:hidden; text-overflow:ellipsis; }
     .nav-btn:hover { color:var(--vscode-foreground); background:var(--vscode-list-hoverBackground); }
@@ -303,9 +297,6 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     }
     @media (max-width: 240px) {
       .shell { padding:6px; }
-      .product-bar { align-items:flex-start; }
-      .brand-context { display:none; }
-      .product-bar > .btn { flex:none; }
       .tabs { padding:0 6px; }
       .item-actions .btn { flex:1 1 100%; }
     }
@@ -348,10 +339,6 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       metric('Line coverage',coverageGate?percent(coverageGate.summary.lines):'—',coverageGate?(coverageGate.summary.change?signed(coverageGate.summary.change)+' · ':'')+coverageGate.status:'No result yet',gateTone(coverageGate)),
       metric('Security',securityGate?String(securityGate.summary.total):'—',securityGate?securityGate.summary.newIssues+' new · '+securityGate.summary.fixedIssues+' fixed':'No result yet',securityGate&&securityGate.status==='passed'&&securityGate.summary.total?'incomplete':gateTone(securityGate))
     ); if(includeChanges)metrics.append(metric('Changed files',String(s.changedFiles.length),s.headBranch||'detached HEAD','neutral')); return metrics; };
-
-    const product=el('header','product-bar'),brand=el('div','brand'),brandCopy=el('div','brand-copy');
-    brandCopy.append(el('div','brand-name','VibeCheck'),el('div','brand-context',(s.headBranch||'detached HEAD')+' · '+s.baselineCommit.slice(0,8)));
-    brand.append(el('div','brand-mark','V'),brandCopy); product.append(brand,button('Refresh','refresh',undefined,'ghost')); app.append(product);
 
     const pages={status:el('section','page'),review:el('section','page'),quality:el('section','page'),tools:el('section','page')};
     const nav=el('nav','nav'), navItems=[['status','Status'+(open.length?' · '+open.length:'')],['review','Review'],['quality','Quality'],['tools','Tools']];

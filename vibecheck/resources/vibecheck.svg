@@ -1,3 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19.3 8.2A8 8 0 1 0 20 15m-.7-6.8V3.8m0 4.4h-4.4M4.7 15.8v4.4m0-4.4h4.4"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="vibecheck-icon-title">
+  <title id="vibecheck-icon-title">VibeCheck</title>
+  <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.1" d="M2.5 12h3l1.7-3.7 3.1 7.4 2.4-5.4 2.5 4.1 6.3-7.1"/>
 </svg>
