@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 
 import { VibeCheckConfiguration } from "../domain/configuration";
 import { ChangeSummarySession } from "../domain/change-summary";
+import { ConfigurationSetupSession } from "../domain/configuration-setup";
 import { AgentAlignmentSnapshot } from "../agent-instructions/alignment-service";
 import { categoryFor, calculateReadiness, missingRecommendedCategories } from "../domain/quality-gates";
 import { ObservationSnapshot } from "../domain/observation-state";
@@ -19,6 +20,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     private readonly getConfigurationError: () => string | undefined,
     private readonly getReviewTranscript: () => Array<{ at: string; kind: string; label: string; content?: string }>,
     private readonly getChangeSummarySession: () => ChangeSummarySession | undefined,
+    private readonly getConfigurationSetupSession: () => ConfigurationSetupSession | undefined,
     private readonly getProviderUsage: () => ProviderUsageSnapshot,
     private readonly getAgentAlignment: () => AgentAlignmentSnapshot,
   ) {}
@@ -58,6 +60,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           configurationError: this.getConfigurationError(),
           reviewTranscript: this.getReviewTranscript(),
           changeSummarySession: this.getChangeSummarySession(),
+          configurationSetupSession: this.getConfigurationSetupSession(),
           providerUsage: this.getProviderUsage(),
           agentAlignment: this.getAgentAlignment(),
           modelRouting: readModelRouting(),
@@ -432,7 +435,9 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     gates.content.append(qualityMetrics());
     if(!s.verification.length) gates.content.append(el('div','empty','No checks configured yet. Add tests, coverage, and security checks.'));
     s.verification.forEach(v=>{ const item=el('div','item'), head=el('div','item-head'), title=el('div','row'); title.append(el('i','dot '+v.status),el('span','item-title',v.name)); head.append(title,el('span','badge '+(v.status==='passed'?'ready':v.status==='failed'?'blocked':'incomplete'),v.status)); item.append(head,el('div','meta',(data.categories[v.name]||'other')+(v.required===false?' · optional':' · required')+(v.finishedAt?' · '+new Date(v.finishedAt).toLocaleString():'')+(v.durationMs!==undefined?' · '+(v.durationMs/1000).toFixed(1)+'s':''))); if(v.summary)item.append(el('div','callout',summaryText(v.summary))); const a=el('div','item-actions'); a.append(button(v.status==='running'?'Running…':'Run','run-check',v.name),button('Output','check-output',v.name,'ghost')); item.append(a); gates.content.append(item); });
-    const setupConfig=el('div','callout'); setupConfig.append(el('strong','','Agent-assisted setup and updates'),el('p','','Generate a repository-aware prompt, then choose Claude, Codex, preview, or copy-only. Existing configuration is audited and preserved rather than recreated.')); const gateActions=el('div','item-actions'); gateActions.append(button('Generate setup/update prompt','setup-prompt'),button('Open configuration file','config',undefined,'ghost')); setupConfig.append(gateActions); gates.content.append(setupConfig); pages.quality.append(gates.card);
+    const setupSession=data.configurationSetupSession,setupRunning=setupSession?.status==='running',setupConfig=el('div','callout'); setupConfig.append(el('strong','','Agent-assisted setup and updates'),el('p','','Choose a Balanced or Deep Codex/Claude model. VibeCheck runs the provider as a managed, cancellable CLI session and validates the resulting .vibecheck files.')); const gateActions=el('div','item-actions'),runSetup=button(setupRunning?'Configuration running…':'Choose model and configure','setup-prompt',undefined,'primary'); runSetup.disabled=setupRunning; gateActions.append(runSetup,button('Open configuration file','config',undefined,'ghost')); setupConfig.append(gateActions); gates.content.append(setupConfig);
+    if(setupSession){ const tone=setupSession.status==='completed'?'ready':setupSession.status==='failed'?'blocked':'incomplete',head=el('div','item-head'); head.append(el('span','item-title',(setupSession.provider==='codex'?'Codex':'Claude')+' · '+setupSession.profile+' configuration '+setupSession.mode),el('span','badge '+tone,setupSession.status)); const item=el('div','item'),changed=setupSession.changedFiles?.length?' · '+setupSession.changedFiles.join(', '):''; item.append(head,el('div','meta',setupSession.model+' · '+setupSession.effort+' effort · started '+new Date(setupSession.startedAt).toLocaleString()+changed)); if(setupSession.error)item.append(el('div','callout danger',setupSession.error)); gates.content.append(item); const transcript=setupSession.transcript||[]; if(transcript.length){ const terminal=el('div','review-terminal'),terminalHead=el('div','review-terminal-head'); terminalHead.append(el('strong','',setupRunning?'Live CLI configuration':'CLI configuration transcript'),el('span','',setupRunning?'streaming · memory only':'memory only')); terminal.append(terminalHead); transcript.forEach(entry=>{ const row=el('div','review-terminal-entry '+entry.kind),meta=el('div','review-terminal-meta'); meta.append(el('span','review-terminal-kind',entry.kind),el('time','',new Date(entry.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})),el('strong','',entry.label)); row.append(meta); if(entry.content)row.append(el('pre','',entry.content)); terminal.append(row); }); gates.content.append(terminal); if(transcriptPinned)requestAnimationFrame(()=>{ terminal.scrollTop=terminal.scrollHeight; }); } }
+    pages.quality.append(gates.card);
 
     const attention=section('Needs attention',open.length,'status:attention',open.length>0);
     pages.status.append(el('div','eyebrow','Findings'),el('div','section-intro','Review high-signal findings, record intentional changes, and keep the readiness decision explainable.'));

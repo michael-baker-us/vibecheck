@@ -11,8 +11,10 @@ import { AgentFileCollector } from "./collectors/agent-file-collector";
 import { GitCollector } from "./collectors/git-collector";
 import { PlanCollector } from "./collectors/plan-collector";
 import { ConfigLoader } from "./config/config-loader";
+import { ConfigurationSetupService } from "./config/configuration-setup-service";
 import { CodeReviewFinding, CodeReviewSelection } from "./domain/code-review";
 import { ChangeSummaryRange, ChangeSummarySession } from "./domain/change-summary";
+import { ConfigurationSetupSession } from "./domain/configuration-setup";
 import { Finding } from "./domain/findings";
 import { ObservationController } from "./observation-controller";
 import { buildFollowUpPrompt } from "./prompts/follow-up-builder";
@@ -42,8 +44,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const git = new GitCollector();
   const usageService = new ProviderUsageService();
   const changeSummaryService = new ChangeSummaryService();
+  const configurationSetupService = new ConfigurationSetupService();
   const alignmentService = new AgentInstructionAlignmentService();
   let changeSummarySession: ChangeSummarySession | undefined;
+  let configurationSetupSession: ConfigurationSetupSession | undefined;
   let providerUsage = usageService.emptySnapshot();
   let agentAlignment = alignmentService.emptySnapshot();
   const adapters = new AdapterInstaller(context.asAbsolutePath("resources/hook-bridge.cjs"));
@@ -57,6 +61,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => controller.getConfigurationError(),
     () => controller.getReviewTranscript(),
     () => changeSummarySession,
+    () => configurationSetupSession,
     () => providerUsage,
     () => agentAlignment,
   );
@@ -161,7 +166,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       output.show(true);
     }),
     vscode.commands.registerCommand("vibecheck.openConfig", () => openConfiguration(controller)),
-    vscode.commands.registerCommand("vibecheck.createSetupPrompt", () => createSetupPrompt(controller)),
+    vscode.commands.registerCommand("vibecheck.createSetupPrompt", () =>
+      runConfigurationSetup(controller, configurationSetupService, (session) => {
+        configurationSetupSession = session;
+        controlCenter.refresh();
+      })),
     vscode.commands.registerCommand("vibecheck.manageAgentFile", (relativePath?: string) =>
       manageAgentFile(controller, relativePath),
     ),
@@ -810,7 +819,7 @@ type ProviderModelChoice = CodeReviewSelection & vscode.QuickPickItem & { label:
 
 async function chooseProviderModel(
   title: string,
-  purpose: "review" | "summary",
+  purpose: "review" | "summary" | "setup",
 ): Promise<ProviderModelChoice | undefined> {
   return vscode.window.showQuickPick<ProviderModelChoice>(
     providerModelChoices(purpose),
@@ -823,14 +832,18 @@ async function chooseProviderModel(
   );
 }
 
-function providerModelChoices(purpose: "review" | "summary"): ProviderModelChoice[] {
+function providerModelChoices(purpose: "review" | "summary" | "setup"): ProviderModelChoice[] {
   const routing = getModelRouting();
   const balancedDetail = purpose === "summary"
     ? "Recommended for concise summaries with lower latency and cost."
-    : "Faster routine review with balanced capability and latency.";
+    : purpose === "setup"
+      ? "Recommended for routine repository inspection and configuration updates."
+      : "Faster routine review with balanced capability and latency.";
   const deepDetail = purpose === "summary"
     ? "Higher-cost option for unusually large or complex comparisons."
-    : "Quality-first review for large, sensitive, or difficult changes.";
+    : purpose === "setup"
+      ? "Quality-first configuration for large repositories or complex build systems."
+      : "Quality-first review for large, sensitive, or difficult changes.";
   return [
     { key: "codex-balanced", label: "Codex · Balanced (Default)", description: `${routing.codexBalanced} · medium effort`, detail: balancedDetail, provider: "codex", profile: "balanced", model: routing.codexBalanced, effort: "medium" },
     { key: "codex-deep", label: "Codex · Deep", description: `${routing.codexDeep} · high effort`, detail: deepDetail, provider: "codex", profile: "deep", model: routing.codexDeep, effort: "high" },
@@ -995,9 +1008,17 @@ async function openConfiguration(controller: ObservationController): Promise<voi
   await controller.refresh();
 }
 
-async function createSetupPrompt(controller: ObservationController): Promise<void> {
+async function runConfigurationSetup(
+  controller: ObservationController,
+  service: ConfigurationSetupService,
+  onSessionChanged: (session: ConfigurationSetupSession) => void,
+): Promise<void> {
   const snapshot = controller.getSnapshot();
   if (snapshot.kind !== "ready") return;
+  if (!vscode.workspace.isTrusted) {
+    void vscode.window.showWarningMessage("Trust this VS Code workspace before invoking a configuration provider.");
+    return;
+  }
   const configPath = path.join(snapshot.state.repositoryRoot, ".vibecheck", "config.yaml");
   let existingConfig = true;
   try {
@@ -1005,34 +1026,77 @@ async function createSetupPrompt(controller: ObservationController): Promise<voi
   } catch {
     existingConfig = false;
   }
+  const choice = await chooseProviderModel(
+    existingConfig ? "Choose model to audit VibeCheck configuration" : "Choose model to set up VibeCheck",
+    "setup",
+  );
+  if (!choice) return;
   const prompt = buildConfigurationSetupPrompt(controller.getConfiguration(), existingConfig);
-  const action = await vscode.window.showQuickPick([
-    { label: "Claude Code", description: "Copy the prompt and open Claude in the repository root", provider: "claude" as const },
-    { label: "Codex", description: "Copy the prompt and open Codex in the repository root", provider: "codex" as const },
-    { label: "Preview prompt", description: "Open the generated Markdown without launching a provider", provider: "preview" as const },
-    { label: "Copy prompt only", description: "Copy the generated prompt to the clipboard", provider: "copy" as const },
-  ], {
-    title: existingConfig ? "Audit and update VibeCheck configuration" : "Set up VibeCheck configuration",
-    placeHolder: "Choose where to use the provider-neutral prompt",
-  });
-  if (!action) return;
-  await vscode.env.clipboard.writeText(prompt);
-  if (action.provider === "preview") {
-    const document = await vscode.workspace.openTextDocument({ language: "markdown", content: prompt });
-    await vscode.window.showTextDocument(document, { preview: false });
-    return;
-  }
-  if (action.provider === "claude" || action.provider === "codex") {
-    const terminal = vscode.window.createTerminal({
-      name: `VibeCheck ${action.provider === "claude" ? "Claude" : "Codex"} Setup`,
-      cwd: snapshot.state.repositoryRoot,
+  const startedAt = new Date().toISOString();
+  let session: ConfigurationSetupSession = {
+    provider: choice.provider,
+    profile: choice.profile,
+    model: choice.model,
+    effort: choice.effort,
+    mode: existingConfig ? "update" : "setup",
+    status: "running",
+    startedAt,
+    changedFiles: [],
+    transcript: [{
+      at: startedAt,
+      kind: "status",
+      label: `Starting ${choice.provider === "codex" ? "Codex" : "Claude"} configuration ${existingConfig ? "audit" : "setup"}`,
+    }],
+  };
+  const updateSession = (change: Partial<ConfigurationSetupSession>) => {
+    session = { ...session, ...change };
+    onSessionChanged(session);
+  };
+  updateSession({});
+  try {
+    const result = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `VibeCheck: ${existingConfig ? "Auditing" : "Creating"} configuration with ${choice.label}`,
+        cancellable: true,
+      },
+      async (progress, token) => {
+        const abort = new AbortController();
+        token.onCancellationRequested(() => abort.abort());
+        return service.run(choice, snapshot.state.repositoryRoot, prompt, abort.signal, (event) => {
+          progress.report({ message: event.detail ? `${event.label} · ${event.detail}` : event.label });
+        }, (entry) => {
+          const previous = session.transcript.at(-1);
+          if (previous?.kind === entry.kind && previous.label === entry.label && previous.content === entry.content) return;
+          updateSession({ transcript: [...session.transcript, { ...entry, at: new Date().toISOString() }].slice(-100) });
+        });
+      },
+    );
+    updateSession({
+      status: "completed",
+      finishedAt: new Date().toISOString(),
+      changedFiles: result.changedFiles,
     });
-    terminal.show();
-    terminal.sendText(action.provider);
-    void vscode.window.showInformationMessage(`VibeCheck ${existingConfig ? "audit/update" : "setup"} prompt copied. Paste it into the ${action.label} terminal when it is ready.`);
-    return;
+    await controller.refresh();
+    const detail = result.changedFiles.length
+      ? `Updated ${result.changedFiles.join(", ")}.`
+      : "The existing configuration was already current.";
+    void vscode.window.showInformationMessage(`VibeCheck configuration completed. ${detail}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    updateSession({
+      status: "failed",
+      finishedAt: new Date().toISOString(),
+      error: message,
+      transcript: [...session.transcript, {
+        at: new Date().toISOString(),
+        kind: "error" as const,
+        label: "Configuration setup stopped",
+        content: message,
+      }].slice(-100),
+    });
+    void vscode.window.showErrorMessage(`VibeCheck configuration failed: ${message}`);
   }
-  void vscode.window.showInformationMessage(`VibeCheck ${existingConfig ? "audit/update" : "setup"} prompt copied to the clipboard.`);
 }
 
 async function createEvidenceReport(controller: ObservationController): Promise<void> {

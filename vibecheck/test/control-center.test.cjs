@@ -44,8 +44,10 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /Model routing/);
   assert.match(source, /Save model routes/);
   assert.match(source, /set-model-routing/);
-  assert.match(source, /Generate setup\/update prompt/);
+  assert.match(source, /Choose model and configure/);
   assert.match(source, /Agent-assisted setup and updates/);
+  assert.match(source, /Live CLI configuration/);
+  assert.match(source, /configurationSetupSession/);
 
   for (const action of [
     "select-plan", "open-plan", "refresh", "refresh-provider-usage", "pause", "resume",

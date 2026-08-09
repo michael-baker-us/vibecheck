@@ -145,7 +145,7 @@
       },
       {
         "command": "vibecheck.createSetupPrompt",
-        "title": "Generate Claude or Codex Setup/Update Prompt",
+        "title": "Configure with Claude or Codex",
         "category": "VibeCheck",
         "icon": "$(sparkle)"
       },

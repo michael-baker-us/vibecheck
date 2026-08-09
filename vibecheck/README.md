@@ -148,16 +148,16 @@ watching aligns safe changes and surfaces provider-specific additions for review
 
 Run **VibeCheck: Open Local Configuration** or create `.vibecheck/config.yaml`:
 
-For agent-assisted setup, run **VibeCheck: Generate Claude or Codex Setup/Update Prompt** or select
-**Generate setup/update prompt** under Quality. Choose Claude, Codex, Markdown preview, or copy-only.
-For a provider, VibeCheck copies the provider-neutral prompt and opens that CLI in the repository
-root, ready for you to paste it. The schema-bounded prompt asks the agent to inspect repository
-scripts, CI, tests, coverage, security tooling, plans, and architecture before editing. It limits
-changes to `.vibecheck/config.yaml` and evidence-backed `.vibecheck/rules.yaml`; it does not let
-the agent invent scripts, install dependencies, or change application code. When configuration
-already exists, the prompt switches to audit/update mode: it preserves justified entries and
-thresholds, changes only stale or missing fields, validates the files from disk, and summarizes only
-actual edits.
+For agent-assisted setup, run **VibeCheck: Configure with Claude or Codex** or select **Choose model
+and configure** under Quality. Choose a Balanced or Deep Codex/Claude model just as you would for a
+code review. VibeCheck runs the selected CLI as a managed, cancellable session and streams its
+memory-only transcript into the Quality view; it does not open a terminal. The schema-bounded prompt
+asks the agent to inspect repository scripts, CI, tests, coverage, security tooling, plans, and
+architecture before editing. Changes are limited to `.vibecheck/config.yaml` and evidence-backed
+`.vibecheck/rules.yaml`; alternate configuration directories, invented scripts, dependency installs,
+and application-code changes are prohibited. VibeCheck then loads the files through its production
+configuration parser before reporting success. Existing configuration uses audit/update mode, which
+preserves justified entries and thresholds and changes only stale or missing fields.
 
 ```yaml
 plans:

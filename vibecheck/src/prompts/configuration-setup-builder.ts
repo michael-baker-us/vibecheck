@@ -23,6 +23,7 @@ ${existingConfig
 
 - Add or update \`.vibecheck/config.yaml\`.
 - Add or update \`.vibecheck/rules.yaml\` only when the repository has clear, enforceable JavaScript or TypeScript dependency boundaries.
+- Use \`.vibecheck/\` as the only VibeCheck configuration directory. Do not create alternate hidden directories or configuration locations.
 - Do not modify application code, package scripts, dependencies, CI, provider settings, or secrets.
 - Preserve valid existing configuration unless repository evidence shows that it is stale or incorrect.
 - Edit the files directly. Do not merely return a proposed YAML block in chat.
