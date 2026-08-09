@@ -32,9 +32,13 @@ monitor the agent.
 - Creates concise, plain-language Markdown summaries for uncommitted changes, source-to-target branch
   comparisons, or any two Git commits or refs. Branch comparisons can fetch the latest target from a
   selected remote without checking out or pulling into the target branch.
+- Generates or maintains the root `README.md` through an explicit Codex or Claude CLI action. A
+  hidden watermark records the reviewed commit and ISO timestamp: valid ancestor markers drive an
+  incremental Git-history review, while missing, malformed, or divergent markers trigger a holistic
+  repository review.
 - Makes model routing explicit before every review. The exact Codex and Claude models for Balanced
-  and Deep profiles are workspace-configurable and shared by reviews and change summaries. Balanced
-  uses medium effort; Deep uses high effort.
+  and Deep profiles are workspace-configurable and shared by reviews, change summaries, and README
+  maintenance. Balanced uses medium effort; Deep uses high effort.
 - Streams a terminal-style, memory-only transcript into the Review view while the CLI is running,
   including assistant messages, tool calls, commands, and bounded tool output. Completed Codex and
   Claude results use the same concise Markdown report format.
@@ -45,10 +49,12 @@ VibeCheck has no account, hosted backend, product telemetry, external LLM, or re
 connection. Repository contents, findings, command output, agent metadata, and reports stay on the
 machine.
 
-VibeCheck invokes Codex or Claude only when you select **Run code review** or **Summarize changes**
-and choose a provider.
+VibeCheck invokes Codex or Claude only when you select **Run code review**, **Summarize changes**,
+an agent-assisted configuration/workspace action, or **Generate or maintain README**, and choose a
+provider.
 That provider may send repository content to its configured service under its own authentication
-and data controls. VibeCheck stores only the structured review result in VS Code workspace state.
+and data controls. README inspection runs the CLI read-only; VibeCheck validates its structured
+response and is the component that writes only the root `README.md`.
 
 The optional hook bridge deliberately excludes prompt text, assistant messages, transcripts, tool
 arguments, and tool output. It retains only lifecycle metadata in `~/.vibecheck/events.jsonl`,
@@ -75,12 +81,14 @@ before installing this package so only one Activity Bar entry is registered.
 1. Open a Git-backed workspace.
 2. Use Codex, Claude, or manual editing normally; use VS Code Source Control for files and diffs.
 3. Run a semantic review from **Review** and choose an explicit provider, model, and review depth.
-4. Run individual quality gates or **Run all checks** whenever you need current evidence, then use
+4. Generate or refresh `README.md` from **Tools** when repository behavior or setup changes. The
+   first run scans the repository; later runs use the watermark commit as their Git-history base.
+5. Run individual quality gates or **Run all checks** whenever you need current evidence, then use
    **View report** for a plain-language result with the underlying command output.
-5. Inspect, accept, or dismiss high-signal deterministic findings in **Needs attention**.
-6. Create an evidence report or copy a concrete agent follow-up.
-7. Review repository agent capabilities and open or create their files under **Agent workspace**.
-8. Commit normally. VibeCheck detects the new `HEAD` and begins monitoring uncommitted work against
+6. Inspect, accept, or dismiss high-signal deterministic findings in **Needs attention**.
+7. Create an evidence report or copy a concrete agent follow-up.
+8. Review repository agent capabilities and open or create their files under **Agent workspace**.
+9. Commit normally. VibeCheck detects the new `HEAD` and begins monitoring uncommitted work against
    that commit automatically.
 
 The readiness badge is deliberately conservative. Required checks must pass and high-risk findings
@@ -97,8 +105,9 @@ The Control Center is organized around four workflow-focused views:
   freshness, and a provider-neutral Markdown preview.
 - **Quality:** plain-language quality-gate outcomes, structured metrics, timestamps, dedicated
   Markdown reports, preserved raw output, and configuration.
-- **Tools:** change summaries, Codex and Claude account-limit snapshots, the active plan, repository
-  agent capabilities, editable Balanced/Deep model routes, adapters, and local monitoring controls.
+- **Tools:** change summaries, Git-aware README maintenance, Codex and Claude account-limit snapshots,
+  the active plan, repository agent capabilities, editable Balanced/Deep model routes, adapters, and
+  local monitoring controls.
 
 The selected view and agent-workspace tab persist across refreshes, keeping the interface stable
 while checks run or repository state changes.
@@ -147,8 +156,11 @@ evidence-backed `AGENTS.md` and `CLAUDE.md` contents; VibeCheck does not seed ge
 files, project settings, rules, subagents, hooks, MCP configuration, or output styles when repository
 evidence justifies them. It may also return no files. The supporting workflow excludes the two core
 instruction files, personal files, credentials, legacy Claude commands, plugin packaging, invented
-hook scripts, and unrelated files. The capability tabs list existing files only rather than
-advertising opinionated placeholder names.
+hook scripts, and unrelated files. The provider tabs pair existing-file inventory with editable
+templates for skills and reusable prompts, subagents, settings, rules, hooks, MCP entries, and other
+supported provider-specific surfaces. **Open template** creates an unsaved Markdown working document
+with supported target paths, design questions, a minimal format example, and an agent handoff. It
+does not prompt for requirements, invoke a CLI, or write into the repository.
 
 VibeCheck shows one managed CLI transcript, the complete proposed file list with rationales, and
 native side-by-side diffs through **Preview all changes**. **Apply all proposed files** is the only

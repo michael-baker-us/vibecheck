@@ -18,6 +18,9 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /More actions/);
   assert.match(source, /Run code review/);
   assert.match(source, /Summarize changes/);
+  assert.match(source, /README maintenance/);
+  assert.match(source, /Choose model and update README/);
+  assert.match(source, /vibecheck\.maintainReadme/);
   assert.match(
     source,
     /const qualityActions=el\('div','actions single-action'\).*button\('Run all checks','run-all',undefined,'primary'\).*gates\.content\.append\(qualityActions\)/,
@@ -76,6 +79,13 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /configurationSetupSession/);
   assert.match(source, /Generate instruction files/);
   assert.match(source, /Generate supporting files/);
+  assert.match(source, /Templates and examples/);
+  assert.match(source, /const tab=el\('button','tab',label\)/);
+  assert.doesNotMatch(source, /label\+' \('\+files\.length\+'\)'/);
+  assert.match(source, /Open template/);
+  assert.match(source, /open-agent-capability-template/);
+  assert.match(source, /vibecheck\.openAgentCapabilityTemplate/);
+  assert.doesNotMatch(source, /generate-agent-capability|generateAgentCapability/);
   assert.match(source, /Clear agent workspace/);
   assert.match(source, /Apply all proposed files/);
   assert.match(source, /Preview all changes/);
@@ -87,10 +97,10 @@ test("ships a syntactically valid task-oriented Control Center", () => {
 
   for (const action of [
     "select-plan", "open-plan", "refresh", "refresh-provider-usage", "pause", "resume",
-    "run-all", "run-review", "clear-review", "preview-review", "summarize-changes",
+    "run-all", "run-review", "clear-review", "preview-review", "summarize-changes", "maintain-readme",
     "check-output-menu", "copy-prompt", "export", "config", "setup-prompt", "install-codex",
     "install-claude", "remove-adapter", "delete", "start", "manage-agent-file",
-    "generate-agent-instructions", "refresh-agent-instructions", "preview-agent-workspace", "preview-agent-instruction",
+    "generate-agent-instructions", "refresh-agent-instructions", "open-agent-capability-template", "preview-agent-workspace", "preview-agent-instruction",
     "apply-agent-instructions", "discard-agent-instructions", "align-agent-instructions",
     "set-agent-alignment", "resolve-agent-alignment", "clear-agent-workspace",
     "inspect-review", "inspect-finding", "accept-finding", "dismiss-finding",

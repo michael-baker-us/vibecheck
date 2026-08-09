@@ -7,6 +7,7 @@ import { AdapterInstaller, SupportedAgent } from "./adapters/adapter-installer";
 import { LocalEventReader } from "./adapters/local-event-reader";
 import { AgentInstructionAlignmentService } from "./agent-instructions/alignment-service";
 import { InstructionRefreshService } from "./agent-instructions/refresh-service";
+import { buildAgentCapabilityTemplate, isAgentCapabilityTemplateId } from "./agent-instructions/capability-template";
 import { AgentWorkspaceResetService } from "./agent-instructions/reset-service";
 import { AnalysisEngine } from "./analyzers/analysis-engine";
 import { AgentFileCollector } from "./collectors/agent-file-collector";
@@ -18,6 +19,7 @@ import { CodeReviewFinding, CodeReviewSelection } from "./domain/code-review";
 import { ChangeSummaryRange, ChangeSummarySession } from "./domain/change-summary";
 import { ConfigurationSetupSession } from "./domain/configuration-setup";
 import { InstructionFilePath, InstructionRefreshProposal, InstructionRefreshScope, InstructionRefreshSession } from "./domain/instruction-refresh";
+import { ReadmeMaintenanceSession } from "./domain/readme-maintenance";
 import { Finding } from "./domain/findings";
 import { ObservationController } from "./observation-controller";
 import { buildFollowUpPrompt } from "./prompts/follow-up-builder";
@@ -29,6 +31,7 @@ import { buildCodeReviewMarkdown } from "./reports/code-review-markdown";
 import { buildChangeSummaryMarkdown } from "./reports/change-summary-markdown";
 import { buildVerificationReport } from "./reports/verification-markdown";
 import { CodeReviewService } from "./reviews/code-review-service";
+import { ReadmeMaintenanceService } from "./readme/readme-maintenance-service";
 import { WorkspaceStore } from "./storage/workspace-store";
 import { ChangeSummaryService } from "./summaries/change-summary-service";
 import { FindingDiagnostics } from "./ui/diagnostics";
@@ -50,12 +53,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const git = new GitCollector();
   const usageService = new ProviderUsageService();
   const changeSummaryService = new ChangeSummaryService();
+  const readmeMaintenanceService = new ReadmeMaintenanceService();
   const configurationSetupService = new ConfigurationSetupService();
   const alignmentService = new AgentInstructionAlignmentService();
   const instructionRefreshService = new InstructionRefreshService();
   const agentWorkspaceResetService = new AgentWorkspaceResetService();
   const instructionPreviewProvider = new InstructionPreviewProvider();
   let changeSummarySession: ChangeSummarySession | undefined;
+  let readmeMaintenanceSession: ReadmeMaintenanceSession | undefined;
   let configurationSetupSession: ConfigurationSetupSession | undefined;
   let instructionRefreshSession: InstructionRefreshSession | undefined;
   let instructionRefreshProposal: InstructionRefreshProposal | undefined;
@@ -72,6 +77,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => controller.getConfigurationError(),
     () => controller.getReviewTranscript(),
     () => changeSummarySession,
+    () => readmeMaintenanceSession,
     () => configurationSetupSession,
     () => instructionRefreshSession,
     () => providerUsage,
@@ -170,6 +176,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         changeSummarySession = session;
         controlCenter.refresh();
       }, options)),
+    vscode.commands.registerCommand("vibecheck.maintainReadme", () =>
+      maintainReadme(controller, readmeMaintenanceService, (session) => {
+        readmeMaintenanceSession = session;
+        controlCenter.refresh();
+      })),
     vscode.commands.registerCommand("vibecheck.showVerificationOutput", async (argument?: string) => {
       const name = argument ?? (await chooseVerification(controller, "Select verification output"));
       if (!name) return;
@@ -248,6 +259,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         instructionRefreshProposal = proposal;
         controlCenter.refresh();
       })),
+    vscode.commands.registerCommand("vibecheck.openAgentCapabilityTemplate", async (templateId?: unknown) => {
+      if (!isAgentCapabilityTemplateId(templateId)) return;
+      const document = await vscode.workspace.openTextDocument({
+        language: "markdown",
+        content: buildAgentCapabilityTemplate(templateId),
+      });
+      await vscode.window.showTextDocument(document, { preview: false });
+    }),
     vscode.commands.registerCommand("vibecheck.previewAgentInstruction", (file?: InstructionFilePath) =>
       previewAgentInstruction(instructionPreviewProvider, instructionRefreshProposal, file)),
     vscode.commands.registerCommand("vibecheck.applyAgentInstructionRefresh", () =>
@@ -819,11 +838,75 @@ async function createChangeSummary(
   }
 }
 
+async function maintainReadme(
+  controller: ObservationController,
+  service: ReadmeMaintenanceService,
+  onSessionChanged: (session: ReadmeMaintenanceSession) => void,
+): Promise<void> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready") return;
+  if (!vscode.workspace.isTrusted) {
+    void vscode.window.showWarningMessage("Trust this VS Code workspace before invoking a README provider.");
+    return;
+  }
+  const choice = await chooseProviderModel("Choose README provider and model", "readme");
+  if (!choice) return;
+  const startedAt = new Date().toISOString();
+  let session: ReadmeMaintenanceSession = {
+    ...choice,
+    headCommit: snapshot.state.baselineCommit,
+    status: "running",
+    startedAt,
+    transcript: [{ at: startedAt, kind: "status", label: `Starting ${choice.provider === "codex" ? "Codex" : "Claude"} README review` }],
+  };
+  const updateSession = (change: Partial<ReadmeMaintenanceSession>) => {
+    session = { ...session, ...change };
+    onSessionChanged(session);
+  };
+  updateSession({});
+  try {
+    const result = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: "VibeCheck: Maintaining README.md", cancellable: true },
+      async (progress, token) => {
+        const abort = new AbortController();
+        token.onCancellationRequested(() => abort.abort());
+        progress.report({ message: `Starting ${choice.provider === "codex" ? "Codex" : "Claude"} CLI…` });
+        return service.run(choice, snapshot.state.repositoryRoot, abort.signal, (event) => {
+          progress.report({ message: event.detail ? `${event.label} · ${event.detail}` : event.label });
+        }, (entry) => {
+          const previous = session.transcript.at(-1);
+          if (previous?.kind === entry.kind && previous.label === entry.label && previous.content === entry.content) return;
+          updateSession({ transcript: [...session.transcript, { ...entry, at: new Date().toISOString() }].slice(-100) });
+        });
+      },
+    );
+    updateSession({
+      status: "completed",
+      finishedAt: new Date().toISOString(),
+      mode: result.mode,
+      baseCommit: result.baseCommit,
+      headCommit: result.headCommit,
+      summary: result.summary,
+    });
+    await controller.refresh();
+    const document = await vscode.workspace.openTextDocument(path.join(snapshot.state.repositoryRoot, "README.md"));
+    await vscode.window.showTextDocument(document, { preview: false });
+    void vscode.window.showInformationMessage(`README.md updated with a ${result.mode === "full" ? "whole-repository" : "Git-history"} review.`);
+  } catch (error) {
+    updateSession({
+      status: "failed",
+      finishedAt: new Date().toISOString(),
+      error: error instanceof Error ? error.message : String(error),
+    });
+    void vscode.window.showErrorMessage(`README update failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 type ProviderModelChoice = CodeReviewSelection & vscode.QuickPickItem & { label: string; key: ChangeSummaryOptions["model"] };
 
 async function chooseProviderModel(
   title: string,
-  purpose: "review" | "summary" | "setup" | "instructions",
+  purpose: "review" | "summary" | "setup" | "instructions" | "readme",
 ): Promise<ProviderModelChoice | undefined> {
   return vscode.window.showQuickPick<ProviderModelChoice>(
     providerModelChoices(purpose),
@@ -836,10 +919,12 @@ async function chooseProviderModel(
   );
 }
 
-function providerModelChoices(purpose: "review" | "summary" | "setup" | "instructions"): ProviderModelChoice[] {
+function providerModelChoices(purpose: "review" | "summary" | "setup" | "instructions" | "readme"): ProviderModelChoice[] {
   const routing = getModelRouting();
   const balancedDetail = purpose === "summary"
     ? "Recommended for concise summaries with lower latency and cost."
+    : purpose === "readme"
+      ? "Recommended for routine README generation and maintenance."
     : purpose === "setup"
       ? "Recommended for routine repository inspection and configuration updates."
       : purpose === "instructions"
@@ -847,6 +932,8 @@ function providerModelChoices(purpose: "review" | "summary" | "setup" | "instruc
       : "Faster routine review with balanced capability and latency.";
   const deepDetail = purpose === "summary"
     ? "Higher-cost option for unusually large or complex comparisons."
+    : purpose === "readme"
+      ? "Quality-first README review for large or complex repositories."
     : purpose === "setup"
       ? "Quality-first configuration for large repositories or complex build systems."
       : purpose === "instructions"

@@ -4,6 +4,7 @@ import { VibeCheckConfiguration } from "../domain/configuration";
 import { ChangeSummarySession } from "../domain/change-summary";
 import { ConfigurationSetupSession } from "../domain/configuration-setup";
 import { InstructionRefreshSession } from "../domain/instruction-refresh";
+import { ReadmeMaintenanceSession } from "../domain/readme-maintenance";
 import { AgentAlignmentSnapshot } from "../agent-instructions/alignment-service";
 import { categoryFor, calculateReadiness, missingRecommendedCategories } from "../domain/quality-gates";
 import { ObservationSnapshot } from "../domain/observation-state";
@@ -21,6 +22,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     private readonly getConfigurationError: () => string | undefined,
     private readonly getReviewTranscript: () => Array<{ at: string; kind: string; label: string; content?: string }>,
     private readonly getChangeSummarySession: () => ChangeSummarySession | undefined,
+    private readonly getReadmeMaintenanceSession: () => ReadmeMaintenanceSession | undefined,
     private readonly getConfigurationSetupSession: () => ConfigurationSetupSession | undefined,
     private readonly getInstructionRefreshSession: () => InstructionRefreshSession | undefined,
     private readonly getProviderUsage: () => ProviderUsageSnapshot,
@@ -62,6 +64,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           configurationError: this.getConfigurationError(),
           reviewTranscript: this.getReviewTranscript(),
           changeSummarySession: this.getChangeSummarySession(),
+          readmeMaintenanceSession: this.getReadmeMaintenanceSession(),
           configurationSetupSession: this.getConfigurationSetupSession(),
           instructionRefreshSession: this.getInstructionRefreshSession(),
           providerUsage: this.getProviderUsage(),
@@ -107,6 +110,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       "clear-review": "vibecheck.clearCodeReview",
       "preview-review": "vibecheck.previewCodeReview",
       "summarize-changes": "vibecheck.summarizeChanges",
+      "maintain-readme": "vibecheck.maintainReadme",
       "check-output-menu": "vibecheck.showVerificationOutput",
       "copy-prompt": "vibecheck.copyPrompt",
       export: "vibecheck.createReport",
@@ -133,6 +137,10 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
 
     const snapshot = this.getSnapshot();
     if (snapshot.kind !== "ready" || !id) return;
+    if (message.action === "open-agent-capability-template") {
+      await vscode.commands.executeCommand("vibecheck.openAgentCapabilityTemplate", id);
+      return;
+    }
     if (message.action === "manage-agent-file") {
       await vscode.commands.executeCommand("vibecheck.manageAgentFile", id);
       return;
@@ -245,6 +253,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     .capability-group { display:grid; gap:7px; }
     .capability-group + .capability-group { margin-top:5px; }
     .capability-label { color:var(--panel-muted); font-size:11px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; }
+    .capability-catalog { display:grid; gap:7px; margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid var(--panel-border); }
     .item { padding: 9px; border: 1px solid var(--panel-border); border-radius: 6px; background:var(--panel-background); }
     .item-title { font-weight: 600; overflow-wrap:anywhere; }
     .meta { color: var(--panel-muted); font-size: 11px; margin-top: 3px; overflow-wrap:anywhere; }
@@ -343,7 +352,29 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
   const metric = (label,value,detail,tone='neutral') => { const node=el('div','metric'); node.append(el('div','metric-label',label),el('div','metric-value '+tone,value),el('div','metric-detail',detail)); return node; };
   const kindLabels={instructions:'Instructions',skills:'Skills',prompts:'Prompts & commands',agents:'Subagents',settings:'Settings',rules:'Rules',hooks:'Hooks',mcp:'MCP servers',plugins:'Plugins','output-styles':'Output styles'};
   const kindOrder=['instructions','skills','prompts','agents','settings','rules','hooks','mcp','plugins','output-styles'];
+  const capabilityCatalog={
+    codex:[
+      ['instructions','Instructions','Shared AGENTS.md and the Claude import bridge.','instructions'],
+      ['skills','Skills & reusable prompts','Portable Agent Skills, mirrored for Claude when compatible.','skills'],
+      ['agents','Subagents','Codex-native project subagent definitions.','codex-agents'],
+      ['settings','Project settings','Repository-scoped Codex configuration.','codex-settings'],
+      ['rules','Command rules','Codex command execution policy.','codex-rules'],
+      ['hooks','Lifecycle hooks','Project automation using existing repository commands.','codex-hooks'],
+      ['mcp','MCP servers','Project MCP entries stored in Codex configuration.','codex-mcp'],
+    ],
+    claude:[
+      ['instructions','Instructions','Shared AGENTS.md imported by CLAUDE.md.','instructions'],
+      ['skills','Skills & reusable prompts','Current replacement for custom commands; portable skills stay aligned.','skills'],
+      ['agents','Subagents','Claude-native project subagent definitions.','claude-agents'],
+      ['settings','Project settings','Team-shared Claude project configuration.','claude-settings'],
+      ['rules','Project rules','Focused Claude guidance outside the root instructions.','claude-rules'],
+      ['hooks','Lifecycle hooks','Claude automation using existing repository commands.','claude-hooks'],
+      ['mcp','MCP servers','Team-shared project MCP configuration.','claude-mcp'],
+      ['output-styles','Output styles','Claude-specific response presentation guidance.','claude-output-styles'],
+    ],
+  };
   const agentFileItem = f => { const item=el('div','item'),head=el('div','item-head'),owner=f.owner==='vibecheck'?'VibeCheck':f.owner; head.append(el('span','item-title',f.title),el('span','badge ready','present')); item.append(head,el('div','meta',owner+' · '+(kindLabels[f.kind]||f.kind)+' · '+f.path+(f.localOnly?' · local only':'')),el('p','',f.description)); const a=el('div','item-actions'); a.append(button('Open','manage-agent-file',f.path,'secondary')); item.append(a); return item; };
+  const capabilityCatalogItem = (spec,files) => { const [kind,title,description,id]=spec,item=el('div','item'),head=el('div','item-head'),count=files.filter(file=>file.kind===kind).length; head.append(el('span','item-title',title),el('span','badge '+(count?'ready':'neutral'),count?count+' present':'available')); item.append(head,el('p','',description)); const actions=el('div','item-actions'); actions.append(button('Open template','open-agent-capability-template',id,count?'secondary':'ghost')); item.append(actions); return item; };
   function render(data) {
     latestPayload=data;
     const focusedKey=pendingFocusKey||document.activeElement?.dataset?.focusKey; pendingFocusKey=undefined;
@@ -407,7 +438,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       reviewState.findings.forEach(f=>{ const item=el('div','item'),h=el('div','item-head'); h.append(el('span','item-title',f.title),el('span','badge '+(f.severity==='high'?'blocked':f.severity==='medium'?'incomplete':'neutral'),f.severity)); item.append(h,el('div','meta',(f.path||'Repository-level')+(f.line?':'+f.line:'')),el('p','',f.explanation)); if(f.path){ const a=el('div','item-actions'); a.append(button('Inspect','inspect-review',f.id,'secondary')); item.append(a); } review.content.append(item); });
     }
     pages.review.append(review.card);
-    const routing=data.modelRouting,modelRoutes=section('Model routing','Balanced + Deep','tools:model-routing',false),routingIntro=el('div','section-intro','Choose the exact provider model used by both semantic reviews and change summaries. Effort stays profile-based: Balanced uses medium; Deep uses high.'),routingForm=el('div','form-grid');
+    const routing=data.modelRouting,modelRoutes=section('Model routing','Balanced + Deep','tools:model-routing',false),routingIntro=el('div','section-intro','Choose the exact provider model used by semantic reviews, change summaries, and README maintenance. Effort stays profile-based: Balanced uses medium; Deep uses high.'),routingForm=el('div','form-grid');
     const routeFields={}; [['codexBalanced','Codex · Balanced'],['codexDeep','Codex · Deep'],['claudeBalanced','Claude · Balanced'],['claudeDeep','Claude · Deep']].forEach(([key,label])=>{ const field=el('label','form-field'),caption=el('span','',label),input=el('input',''); input.type='text'; input.value=routing[key]; input.dataset.routeKey=key; input.dataset.focusKey='model-route:'+key; input.spellcheck=false; field.append(caption,input); routingForm.append(field); routeFields[key]=input; });
     const saveRoutes=button('Save model routes','',undefined,'primary'); saveRoutes.onclick=()=>vscode.postMessage({action:'set-model-routing',options:Object.fromEntries(Object.entries(routeFields).map(([key,input])=>[key,input.value]))}); routingForm.append(saveRoutes); modelRoutes.content.append(routingIntro,routingForm); pages.tools.append(modelRoutes.card);
     pages.tools.append(el('div','eyebrow','Change communication'),el('div','section-intro','Create a plain-language Markdown summary for working-tree, branch, or revision changes.'));
@@ -431,6 +462,12 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     changeSummary.content.append(summaryCallout,form);
     if(summarySession){ const tone=summarySession.status==='completed'?'ready':summarySession.status==='failed'?'blocked':'incomplete',head=el('div','item-head'); head.append(el('span','item-title',(summarySession.provider==='codex'?'Codex':'Claude')+' · '+summarySession.profile+' summary'),el('span','badge '+tone,summarySession.status)); const session=el('div','item'); session.append(head,el('div','meta',summarySession.baseLabel+' → '+summarySession.targetLabel+' · '+summarySession.model+' · started '+new Date(summarySession.startedAt).toLocaleString())); if(summarySession.error)session.append(el('div','callout danger',summarySession.error)); changeSummary.content.append(session); const transcript=summarySession.transcript||[]; if(transcript.length){ const key='summary:'+summarySession.startedAt; changeSummary.content.append(cliTranscript(key,summaryRunning?'Live CLI summary':'CLI summary transcript',summaryRunning?'streaming · memory only':'memory only',transcript,summarySession.status==='completed'?'minimized':'expanded',transcriptPins[key]!==false)); } }
     pages.tools.append(changeSummary.card);
+
+    const readmeSession=data.readmeMaintenanceSession,readmeRunning=readmeSession?.status==='running',readme=section('README maintenance','Git-aware','tools:readme',true);
+    const readmeCallout=el('div','callout'); readmeCallout.append(el('strong','','Generate or maintain README.md'),el('p','','A valid hidden VibeCheck watermark uses its reviewed commit for an incremental Git-history update. Missing, invalid, or divergent markers trigger a whole-repository review.'));
+    const readmeActions=el('div','item-actions'),runReadme=button(readmeRunning?'README review running…':'Choose model and update README','maintain-readme',undefined,'primary'); runReadme.disabled=readmeRunning; readmeActions.append(runReadme); readmeCallout.append(readmeActions); readme.content.append(readmeCallout);
+    if(readmeSession){ const tone=readmeSession.status==='completed'?'ready':readmeSession.status==='failed'?'blocked':'incomplete',head=el('div','item-head'); head.append(el('span','item-title',(readmeSession.provider==='codex'?'Codex':'Claude')+' · '+readmeSession.profile+' README review'),el('span','badge '+tone,readmeSession.status)); const item=el('div','item'),scope=readmeSession.mode==='incremental'?'changes since '+readmeSession.baseCommit.slice(0,12):readmeSession.mode==='full'?'whole repository':'determining scope'; item.append(head,el('div','meta',scope+' · '+readmeSession.model+' · started '+new Date(readmeSession.startedAt).toLocaleString())); if(readmeSession.summary)item.append(el('p','',readmeSession.summary)); if(readmeSession.error)item.append(el('div','callout danger',readmeSession.error)); readme.content.append(item); const transcript=readmeSession.transcript||[]; if(transcript.length){ const key='readme:'+readmeSession.startedAt; readme.content.append(cliTranscript(key,readmeRunning?'Live CLI README review':'CLI README transcript',readmeRunning?'streaming · memory only':'memory only',transcript,readmeSession.status==='completed'?'minimized':'expanded',transcriptPins[key]!==false)); } }
+    pages.tools.append(readme.card);
 
     const usageState=data.providerUsage,usage=section('Claude & Codex usage',usageState.status==='loading'?'refreshing':'provider reported','tools:usage',false);
     usage.content.append(el('div','section-intro','Account usage reported directly by Codex /status and Claude /usage. Results stay in memory and refresh on demand.'));
@@ -480,8 +517,8 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     const owners=[['codex','Codex'],['claude','Claude'],['vibecheck','VibeCheck']], tabs=el('div','tabs'), panel=el('div','content tab-panel');
     tabs.setAttribute('role','tablist'); tabs.setAttribute('aria-label','Agent workspace files'); panel.setAttribute('role','tabpanel');
     const savedOwner=(vscode.getState()||{}).agentFileOwner, initialOwner=owners.some(([owner])=>owner===savedOwner)?savedOwner:'codex';
-    const showOwner=owner=>{ const ownerFiles=s.agentFiles.filter(f=>f.owner===owner&&f.exists),groups=[]; kindOrder.forEach(kind=>{ const files=ownerFiles.filter(f=>f.kind===kind); if(!files.length)return; const group=el('div','capability-group'); group.append(el('div','capability-label',(kindLabels[kind]||kind)+' · '+files.length+' present'),...files.map(agentFileItem)); groups.push(group); }); panel.replaceChildren(...(groups.length?groups:[el('div','empty','No '+owner+' repository files are present. Generate reviewed files above when this repository benefits from them.')])); panel.setAttribute('aria-labelledby','agent-tab-'+owner); tabs.querySelectorAll('[role="tab"]').forEach(tab=>{ const selected=tab.dataset.owner===owner; tab.setAttribute('aria-selected',String(selected)); tab.tabIndex=selected?0:-1; }); vscode.setState({...vscode.getState(),agentFileOwner:owner}); };
-    owners.forEach(([owner,label],index)=>{ const files=s.agentFiles.filter(f=>f.owner===owner&&f.exists), tab=el('button','tab',label+' ('+files.length+')'); tab.type='button'; tab.dataset.owner=owner; tab.dataset.focusKey='agent-tab:'+owner; tab.id='agent-tab-'+owner; tab.setAttribute('role','tab'); tab.setAttribute('aria-controls','agent-file-panel'); tab.onclick=()=>showOwner(owner); tab.onkeydown=event=>{ if(event.key!=='ArrowLeft'&&event.key!=='ArrowRight') return; event.preventDefault(); const offset=event.key==='ArrowRight'?1:-1, next=owners[(index+offset+owners.length)%owners.length][0]; showOwner(next); tabs.querySelector('[data-owner="'+next+'"]').focus(); }; tabs.append(tab); });
+    const showOwner=owner=>{ const ownerFiles=s.agentFiles.filter(f=>f.owner===owner&&f.exists),groups=[]; kindOrder.forEach(kind=>{ const files=ownerFiles.filter(f=>f.kind===kind); if(!files.length)return; const group=el('div','capability-group'); group.append(el('div','capability-label',(kindLabels[kind]||kind)+' · '+files.length+' present'),...files.map(agentFileItem)); groups.push(group); }); const catalogSpecs=capabilityCatalog[owner]||[],catalog=catalogSpecs.length?el('div','capability-catalog'):undefined; if(catalog){ catalog.append(el('div','capability-label','Templates and examples'),...catalogSpecs.map(spec=>capabilityCatalogItem(spec,ownerFiles))); } const existing=groups.length?groups:[el('div','empty','No '+owner+' repository files are present yet.')]; panel.replaceChildren(...(catalog?[catalog,...existing]:existing)); panel.setAttribute('aria-labelledby','agent-tab-'+owner); tabs.querySelectorAll('[role="tab"]').forEach(tab=>{ const selected=tab.dataset.owner===owner; tab.setAttribute('aria-selected',String(selected)); tab.tabIndex=selected?0:-1; }); vscode.setState({...vscode.getState(),agentFileOwner:owner}); };
+    owners.forEach(([owner,label],index)=>{ const tab=el('button','tab',label); tab.type='button'; tab.dataset.owner=owner; tab.dataset.focusKey='agent-tab:'+owner; tab.id='agent-tab-'+owner; tab.setAttribute('role','tab'); tab.setAttribute('aria-controls','agent-file-panel'); tab.onclick=()=>showOwner(owner); tab.onkeydown=event=>{ if(event.key!=='ArrowLeft'&&event.key!=='ArrowRight') return; event.preventDefault(); const offset=event.key==='ArrowRight'?1:-1, next=owners[(index+offset+owners.length)%owners.length][0]; showOwner(next); tabs.querySelector('[data-owner="'+next+'"]').focus(); }; tabs.append(tab); });
     panel.id='agent-file-panel'; panel.setAttribute('aria-labelledby','agent-tab-'+initialOwner); agents.card.append(tabs,panel); showOwner(initialOwner);
     const adapter=el('div','item'); adapter.append(el('div','item-title','Local agent event adapters'),el('div','meta',s.agent.connectedAgents.length?s.agent.connectedAgents.join(', ')+' connected':'Optional lifecycle context; repository monitoring works without adapters.')); const aa=el('div','item-actions'); aa.append(button('Connect Codex','install-codex'),button('Connect Claude','install-claude'),button('Remove adapter','remove-adapter',undefined,'ghost')); adapter.append(aa); const agentFooter=el('div','content'); agentFooter.append(adapter); agents.card.append(agentFooter); pages.tools.append(agents.card);
 
