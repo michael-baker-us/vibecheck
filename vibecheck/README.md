@@ -140,20 +140,22 @@ The Agent Workspace panel shows every compatibility surface, its drift state, an
 has the newer copy. This makes provider switching quick while keeping deliberate provider-specific
 configuration intact.
 
-For a new repository, run **VibeCheck: Initialize Claude and Codex Workspace** (or select
-**Initialize both** in Agent Workspace). It creates a provider-neutral `AGENTS.md` scaffold when
-needed, creates or updates `CLAUDE.md` to import it, preserves existing Claude-specific guidance,
-and enables continuous safe alignment. Native Codex and Claude `/init` remain supported: filesystem
-watching aligns safe changes and surfaces provider-specific additions for review.
+For new or existing repositories, select **Generate agent workspace** in Agent Workspace or run
+**VibeCheck: Generate Claude and Codex Workspace**. Choose a Balanced or Deep Claude/Codex model;
+the provider scans the repository read-only and proposes whichever supported workspace files are
+justified by current evidence. The catalog includes shared instructions, mirrored open-standard
+skills, Codex and Claude project settings, rules, subagents, hooks, MCP configuration, output styles,
+and plugin manifests when the repository is actually a plugin project. Personal/local files,
+credentials, deprecated Claude commands, invented hook scripts, and unrelated files are excluded.
 
-To refresh existing instructions from the repository's current architecture and workflows, select
-**Update from repository** in Agent Workspace or run **VibeCheck: Update Claude and Codex
-Instructions**. Choose a Balanced or Deep Claude/Codex model; the provider runs read-only and returns
-a structured proposal instead of editing files. VibeCheck shows the managed CLI transcript and a
-native side-by-side diff for each changed file. **Apply proposed updates** is the only write path: it
-rejects stale previews, backs up replaced files outside the repository, updates canonical
-`AGENTS.md`, and keeps `CLAUDE.md` importing shared guidance. You can discard the in-memory proposal
-without changing the workspace.
+VibeCheck shows one managed CLI transcript, the complete proposed file list with rationales, and
+native side-by-side diffs through **Preview all changes**. **Apply all proposed files** is the only
+write path: it rejects stale previews, validates paths and structured formats, backs up replaced
+files outside the repository, and applies the reviewed set together. `AGENTS.md` remains canonical,
+`CLAUDE.md` must import it, and portable skills must be identical Claude/Codex pairs. You can discard
+the in-memory proposal without changing the workspace. Native Codex and Claude `/init` remain
+supported; filesystem watching aligns safe changes and surfaces provider-specific additions for
+review.
 
 ## Configuration
 

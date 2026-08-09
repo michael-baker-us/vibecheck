@@ -161,32 +161,26 @@
         "category": "VibeCheck"
       },
       {
-        "command": "vibecheck.initializeAgentWorkspace",
-        "title": "Initialize Claude and Codex Workspace",
-        "category": "VibeCheck",
-        "icon": "$(wand)"
-      },
-      {
         "command": "vibecheck.refreshAgentInstructions",
-        "title": "Update Claude and Codex Instructions",
+        "title": "Generate Claude and Codex Workspace",
         "category": "VibeCheck",
         "icon": "$(sparkle)"
       },
       {
         "command": "vibecheck.previewAgentInstruction",
-        "title": "Preview Agent Instruction Update",
+        "title": "Preview Agent Workspace Proposal",
         "category": "VibeCheck",
         "icon": "$(diff)"
       },
       {
         "command": "vibecheck.applyAgentInstructionRefresh",
-        "title": "Apply Agent Instruction Update",
+        "title": "Apply Agent Workspace Proposal",
         "category": "VibeCheck",
         "icon": "$(check)"
       },
       {
         "command": "vibecheck.discardAgentInstructionRefresh",
-        "title": "Discard Agent Instruction Update",
+        "title": "Discard Agent Workspace Proposal",
         "category": "VibeCheck",
         "icon": "$(close)"
       },
@@ -273,19 +267,14 @@
           "group": "3_configuration@1"
         },
         {
-          "command": "vibecheck.initializeAgentWorkspace",
+          "command": "vibecheck.refreshAgentInstructions",
           "when": "view == vibecheck.overview",
           "group": "3_configuration@2"
         },
         {
-          "command": "vibecheck.refreshAgentInstructions",
-          "when": "view == vibecheck.overview",
-          "group": "3_configuration@3"
-        },
-        {
           "command": "vibecheck.alignAgentInstructions",
           "when": "view == vibecheck.overview",
-          "group": "3_configuration@4"
+          "group": "3_configuration@3"
         }
       ]
     },
@@ -359,6 +348,7 @@
   },
   "dependencies": {
     "minimatch": "^10.2.6",
+    "smol-toml": "^1.7.1",
     "yaml": "^2.9.0"
   }
 }

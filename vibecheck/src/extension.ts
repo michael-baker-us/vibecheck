@@ -1165,7 +1165,7 @@ async function refreshAgentInstructions(
     void vscode.window.showWarningMessage("Trust this VS Code workspace before invoking an instruction provider.");
     return;
   }
-  const choice = await chooseProviderModel("Choose model to update Claude and Codex instructions", "instructions");
+  const choice = await chooseProviderModel("Choose model to generate the Claude and Codex workspace", "instructions");
   if (!choice) return;
   const startedAt = new Date().toISOString();
   let session: InstructionRefreshSession = {
@@ -1178,7 +1178,7 @@ async function refreshAgentInstructions(
     transcript: [{
       at: startedAt,
       kind: "status",
-      label: `Starting ${choice.provider === "codex" ? "Codex" : "Claude"} instruction audit`,
+      label: `Starting ${choice.provider === "codex" ? "Codex" : "Claude"} workspace scan`,
     }],
     files: [],
   };
@@ -1192,7 +1192,7 @@ async function refreshAgentInstructions(
     const proposal = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `VibeCheck: Auditing instructions with ${choice.label}`,
+        title: `VibeCheck: Generating agent workspace with ${choice.label}`,
         cancellable: true,
       },
       async (progress, token) => {
@@ -1217,14 +1217,14 @@ async function refreshAgentInstructions(
       status: "preview",
       finishedAt: new Date().toISOString(),
       summary: proposal.summary,
-      files: proposal.files.map(({ path: filePath, status }) => ({ path: filePath, status })),
+      files: proposal.files.map(({ path: filePath, status, rationale }) => ({ path: filePath, status, rationale })),
     }, proposal);
     const firstChanged = proposal.files.find((file) => file.status !== "unchanged");
     if (firstChanged) {
-      await previewAgentInstruction(previewProvider, proposal, firstChanged.path);
-      void vscode.window.showInformationMessage("Instruction update preview is ready. Review both file diffs before applying.");
+      await previewAgentInstruction(previewProvider, proposal);
+      void vscode.window.showInformationMessage("Agent Workspace proposal is ready. Review the file diffs before applying all changes.");
     } else {
-      void vscode.window.showInformationMessage("The existing Claude and Codex instructions already match the repository evidence.");
+      void vscode.window.showInformationMessage("The existing Claude and Codex workspace files already match the repository evidence.");
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1235,11 +1235,11 @@ async function refreshAgentInstructions(
       transcript: [...session.transcript, {
         at: new Date().toISOString(),
         kind: "error" as const,
-        label: "Instruction audit stopped",
+        label: "Agent Workspace scan stopped",
         content: message,
       }].slice(-100),
     });
-    void vscode.window.showErrorMessage(`Instruction update failed: ${message}`);
+    void vscode.window.showErrorMessage(`Agent Workspace generation failed: ${message}`);
   }
 }
 
@@ -1248,16 +1248,19 @@ async function previewAgentInstruction(
   proposal: InstructionRefreshProposal | undefined,
   file?: InstructionFilePath,
 ): Promise<void> {
-  if (!proposal || (file !== "AGENTS.md" && file !== "CLAUDE.md")) return;
-  const entry = proposal.files.find((candidate) => candidate.path === file);
-  if (!entry) return;
-  await vscode.commands.executeCommand(
-    "vscode.diff",
-    provider.uri("original", file),
-    provider.uri("proposed", file),
-    `${file} — Current ↔ Proposed`,
-    { preview: true },
-  );
+  if (!proposal) return;
+  const entries = file
+    ? proposal.files.filter((candidate) => candidate.path === file)
+    : proposal.files.filter((candidate) => candidate.status !== "unchanged");
+  for (const entry of entries) {
+    await vscode.commands.executeCommand(
+      "vscode.diff",
+      provider.uri("original", entry.path),
+      provider.uri("proposed", entry.path),
+      `${entry.path} — Current ↔ Proposed`,
+      { preview: false },
+    );
+  }
 }
 
 async function applyAgentInstructionRefresh(
@@ -1278,7 +1281,7 @@ async function applyAgentInstructionRefresh(
     return;
   }
   const choice = await vscode.window.showWarningMessage(
-    `Apply the reviewed updates to ${changed.join(" and ")}? Existing files will be backed up outside the repository.`,
+    `Apply all ${changed.length} reviewed Agent Workspace file${changed.length === 1 ? "" : "s"}? Existing files will be backed up outside the repository.`,
     { modal: true },
     "Apply Updates",
   );
@@ -1295,7 +1298,7 @@ async function applyAgentInstructionRefresh(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     onSessionChanged({ ...session, status: "failed", finishedAt: new Date().toISOString(), error: message }, proposal);
-    void vscode.window.showErrorMessage(`Could not apply instruction updates: ${message}`);
+    void vscode.window.showErrorMessage(`Could not apply Agent Workspace updates: ${message}`);
   }
 }
 

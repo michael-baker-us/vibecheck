@@ -33,7 +33,7 @@ The pre-launch task runs TypeScript in watch mode. Extension runtime output is a
 
 ```bash
 npm run package:vsix
-code --install-extension packages/vibecheck-0.6.7.vsix --force
+code --install-extension packages/vibecheck-0.6.10.vsix --force
 ```
 
 Reload the target VS Code window after installing a new build.
@@ -60,6 +60,9 @@ local agent events ────────┘
 - `reviews/` invokes replaceable Codex or Claude CLI providers in read-only mode and validates their
   structured output before it enters workspace state. Observable provider events also feed a bounded,
   memory-only terminal transcript; hidden reasoning is neither displayed nor persisted.
+- `agent-instructions/refresh-service.ts` runs the same read-only provider pattern to propose a
+  validated, multi-file Claude/Codex workspace. The extension owns preview, stale-proposal checks,
+  backups, and the explicit apply-all write boundary.
 - `adapters/` installs and ingests optional local agent hooks.
 - `ui/` renders the VS Code sidebar control center, status bar, and diagnostics.
 
@@ -85,6 +88,10 @@ During a real agent task, check:
 - committing advances the monitored `HEAD` automatically without a separate lifecycle action;
 - Source Control remains the only changed-file and diff interface;
 - agent workspace files can be opened or deliberately created from the control center;
+- Generate agent workspace proposes only evidence-backed catalog files, shows all changed-file diffs,
+  and changes nothing before Apply all proposed files is confirmed;
+- generated portable skills are identical Claude/Codex pairs, local-only files are excluded, and
+  stale proposals or embedded JSON credentials are rejected;
 - missing tests, coverage, or security gates are understandable without opening YAML;
 - test totals, coverage percentages, and npm-audit new/fixed counts agree with command output;
 - repeat coverage and security runs show movement relative to the immediately preceding run;

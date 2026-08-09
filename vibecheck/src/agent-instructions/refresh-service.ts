@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
+import { parse as parseToml } from "smol-toml";
+import { parse as parseYaml } from "yaml";
 
 import { CodeReviewSelection, CodeReviewTranscriptEntry } from "../domain/code-review";
 import {
@@ -14,18 +16,50 @@ import { normalizeReviewTranscriptEvent } from "../reviews/code-review-service";
 
 const TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
-const MAX_INSTRUCTION_BYTES = 256 * 1024;
-const INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"] as const;
+const MAX_FILE_BYTES = 256 * 1024;
+const MAX_PROPOSAL_BYTES = 1024 * 1024;
+const REQUIRED_FILES = ["AGENTS.md", "CLAUDE.md"] as const;
+const FIXED_FILES = new Set<string>([
+  ...REQUIRED_FILES,
+  ".codex/config.toml",
+  ".codex/hooks.json",
+  ".mcp.json",
+  ".codex-plugin/plugin.json",
+  ".claude/settings.json",
+  ".claude-plugin/plugin.json",
+]);
+const GENERATED_PATH_PATTERNS = [
+  /^\.codex\/rules\/[a-z0-9][a-z0-9._-]*\.rules$/,
+  /^\.codex\/agents\/[a-z0-9][a-z0-9._-]*\.toml$/,
+  /^\.agents\/skills\/[a-z0-9][a-z0-9._-]*\/SKILL\.md$/,
+  /^\.claude\/rules\/[a-z0-9][a-z0-9._-]*\.md$/,
+  /^\.claude\/agents\/[a-z0-9][a-z0-9._-]*\.md$/,
+  /^\.claude\/skills\/[a-z0-9][a-z0-9._-]*\/SKILL\.md$/,
+  /^\.claude\/output-styles\/[a-z0-9][a-z0-9._-]*\.md$/,
+] as const;
 
 const RESPONSE_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
     summary: { type: "string" },
-    agentsMarkdown: { type: "string" },
-    claudeMarkdown: { type: "string" },
+    files: {
+      type: "array",
+      minItems: 2,
+      maxItems: 40,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          path: { type: "string" },
+          content: { type: "string" },
+          rationale: { type: "string" },
+        },
+        required: ["path", "content", "rationale"],
+      },
+    },
   },
-  required: ["summary", "agentsMarkdown", "claudeMarkdown"],
+  required: ["summary", "files"],
 } as const;
 
 export type InstructionRefreshProgress = { label: string; detail?: string };
@@ -49,7 +83,6 @@ export class InstructionRefreshService {
     onProgress?: (progress: InstructionRefreshProgress) => void,
     onTranscript?: (entry: Omit<CodeReviewTranscriptEntry, "at">) => void,
   ): Promise<InstructionRefreshProposal> {
-    const originals = await Promise.all(INSTRUCTION_FILES.map((file) => readOptional(path.join(repositoryRoot, file))));
     const parsed = parseInstructionRefreshOutput(await this.runner(
       selection,
       repositoryRoot,
@@ -58,12 +91,15 @@ export class InstructionRefreshService {
       onProgress,
       onTranscript,
     ));
-    const proposed = [parsed.agentsMarkdown, parsed.claudeMarkdown];
-    const files = INSTRUCTION_FILES.map((file, index): InstructionRefreshFileProposal => ({
-      path: file,
-      originalContent: originals[index],
-      proposedContent: proposed[index],
-      status: originals[index] === undefined ? "created" : originals[index] === proposed[index] ? "unchanged" : "modified",
+    const files = await Promise.all(parsed.files.map(async (file): Promise<InstructionRefreshFileProposal> => {
+      const originalContent = await readOptional(path.join(repositoryRoot, file.path));
+      return {
+        path: file.path,
+        originalContent,
+        proposedContent: file.content,
+        rationale: file.rationale,
+        status: originalContent === undefined ? "created" : originalContent === file.content ? "unchanged" : "modified",
+      };
     }));
     return { summary: parsed.summary, files };
   }
@@ -85,17 +121,24 @@ export class InstructionRefreshService {
     if (existing.length) {
       backupDirectory = path.join(backupRoot, String(Date.now()));
       await mkdir(backupDirectory, { recursive: true });
-      await Promise.all(existing.map((file) => writeFile(path.join(backupDirectory!, file.path), file.originalContent!, "utf8")));
+      await Promise.all(existing.map(async (file) => {
+        const backupPath = path.join(backupDirectory!, file.path);
+        await mkdir(path.dirname(backupPath), { recursive: true });
+        await writeFile(backupPath, file.originalContent!, "utf8");
+      }));
     }
-    for (const file of changed) await writeFile(path.join(repositoryRoot, file.path), file.proposedContent, "utf8");
+    for (const file of changed) {
+      const target = path.join(repositoryRoot, file.path);
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, file.proposedContent, "utf8");
+    }
     return { changedFiles: changed.map((file) => file.path), ...(backupDirectory ? { backupDirectory } : {}) };
   }
 }
 
 export function parseInstructionRefreshOutput(output: string): {
   summary: string;
-  agentsMarkdown: string;
-  claudeMarkdown: string;
+  files: Array<{ path: InstructionFilePath; content: string; rationale: string }>;
 } {
   let value: unknown;
   try {
@@ -106,17 +149,40 @@ export function parseInstructionRefreshOutput(output: string): {
   if (isRecord(value) && isRecord(value.structured_output)) value = value.structured_output;
   if (!isRecord(value)
     || typeof value.summary !== "string"
-    || typeof value.agentsMarkdown !== "string"
-    || typeof value.claudeMarkdown !== "string") {
+    || !Array.isArray(value.files)
+    || value.files.length < 2
+    || value.files.length > 40) {
     throw new Error("The provider returned an invalid instruction proposal.");
   }
   const summary = value.summary.trim();
-  const agentsMarkdown = normalizeMarkdown(value.agentsMarkdown, "AGENTS.md");
-  const claudeMarkdown = normalizeMarkdown(value.claudeMarkdown, "CLAUDE.md");
+  const seen = new Set<string>();
+  const files = value.files.map((candidate): { path: InstructionFilePath; content: string; rationale: string } => {
+    if (!isRecord(candidate)
+      || typeof candidate.path !== "string"
+      || typeof candidate.content !== "string"
+      || typeof candidate.rationale !== "string"
+      || !isAllowedWorkspacePath(candidate.path)) {
+      throw new Error("The provider proposed an unsupported Agent Workspace file.");
+    }
+    if (seen.has(candidate.path)) throw new Error(`The provider proposed ${candidate.path} more than once.`);
+    seen.add(candidate.path);
+    const content = normalizeFileContent(candidate.content, candidate.path);
+    validateStructuredFile(candidate.path, content);
+    const rationale = candidate.rationale.trim();
+    if (!rationale) throw new Error(`The provider gave no rationale for ${candidate.path}.`);
+    return { path: candidate.path, content, rationale };
+  });
+  for (const required of REQUIRED_FILES) {
+    if (!seen.has(required)) throw new Error(`The provider proposal is missing required ${required}.`);
+  }
+  const claudeMarkdown = files.find((file) => file.path === "CLAUDE.md")!.content;
   if (!/^\uFEFF?[ \t]*@AGENTS\.md[ \t]*(?:\n|$)/.test(claudeMarkdown)) {
     throw new Error("The proposed CLAUDE.md does not begin by importing canonical @AGENTS.md guidance.");
   }
-  return { summary, agentsMarkdown, claudeMarkdown };
+  validatePortableSkillPairs(files);
+  const totalBytes = files.reduce((total, file) => total + Buffer.byteLength(file.content, "utf8"), 0);
+  if (totalBytes > MAX_PROPOSAL_BYTES) throw new Error("The Agent Workspace proposal is too large.");
+  return { summary, files };
 }
 
 export function codexInstructionRefreshArguments(
@@ -208,10 +274,10 @@ async function runStreaming(
         if (progress) onProgress?.(progress);
       } catch { /* Non-JSON provider diagnostics remain ephemeral. */ }
     };
-    const abort = () => { child.kill(); finish(new Error("Instruction refresh cancelled.")); };
+    const abort = () => { child.kill(); finish(new Error("Agent Workspace generation cancelled.")); };
     const timeout = setTimeout(() => {
       child.kill();
-      finish(new Error("Instruction refresh timed out after 10 minutes."));
+      finish(new Error("Agent Workspace generation timed out after 10 minutes."));
     }, TIMEOUT_MS);
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
@@ -239,16 +305,16 @@ export function normalizeInstructionRefreshEvent(
   if (!isRecord(value) || typeof value.type !== "string") return undefined;
   if (provider === "codex") {
     if (value.type === "thread.started") return { label: "Starting Codex" };
-    if (value.type === "turn.started") return { label: "Auditing repository guidance" };
-    if (value.type === "turn.completed") return { label: "Preparing instruction preview" };
+    if (value.type === "turn.started") return { label: "Scanning repository workspace needs" };
+    if (value.type === "turn.completed") return { label: "Preparing Agent Workspace preview" };
     if ((value.type === "item.started" || value.type === "item.completed") && isRecord(value.item)) {
       if (value.item.type === "command_execution") return { label: "Inspecting repository evidence" };
-      if (value.item.type === "reasoning") return { label: "Evaluating current instructions" };
+      if (value.item.type === "reasoning") return { label: "Selecting evidence-backed workspace files" };
     }
     return undefined;
   }
   if (value.type === "system" && value.subtype === "init") return { label: "Starting Claude" };
-  if (value.type === "result") return { label: "Preparing instruction preview" };
+  if (value.type === "result") return { label: "Preparing Agent Workspace preview" };
   if (value.type !== "assistant" || !isRecord(value.message) || !Array.isArray(value.message.content)) return undefined;
   for (const block of value.message.content) {
     if (!isRecord(block) || block.type !== "tool_use" || typeof block.name !== "string") continue;
@@ -257,16 +323,113 @@ export function normalizeInstructionRefreshEvent(
   return undefined;
 }
 
-function normalizeMarkdown(content: string, label: string): string {
+function normalizeFileContent(content: string, label: string): string {
   const normalized = content.replace(/\r\n/g, "\n").trimEnd() + "\n";
   if (!normalized.trim()) throw new Error(`The proposed ${label} is empty.`);
-  if (Buffer.byteLength(normalized, "utf8") > MAX_INSTRUCTION_BYTES) throw new Error(`The proposed ${label} is too large.`);
+  if (Buffer.byteLength(normalized, "utf8") > MAX_FILE_BYTES) throw new Error(`The proposed ${label} is too large.`);
   return normalized;
 }
 
+export function isAllowedWorkspacePath(value: string): value is InstructionFilePath {
+  return FIXED_FILES.has(value) || GENERATED_PATH_PATTERNS.some((pattern) => pattern.test(value));
+}
+
+function validateStructuredFile(filePath: InstructionFilePath, content: string): void {
+  if (filePath.endsWith(".json")) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      throw new Error(`The proposed ${filePath} is not valid JSON.`);
+    }
+    if (!isRecord(parsed)) throw new Error(`The proposed ${filePath} must contain a JSON object.`);
+    rejectEmbeddedSecrets(parsed, filePath);
+  }
+  if (filePath.endsWith(".toml")) {
+    let parsed: unknown;
+    try {
+      parsed = parseToml(content);
+    } catch {
+      throw new Error(`The proposed ${filePath} is not valid TOML.`);
+    }
+    rejectEmbeddedSecrets(parsed, filePath);
+  }
+  if (filePath.endsWith("/SKILL.md")) {
+    const frontmatter = markdownFrontmatter(content);
+    if (typeof frontmatter?.name !== "string" || typeof frontmatter.description !== "string") {
+      throw new Error(`The proposed ${filePath} must contain Agent Skills name and description frontmatter.`);
+    }
+  }
+  if (filePath.startsWith(".claude/agents/")) {
+    const frontmatter = markdownFrontmatter(content);
+    if (typeof frontmatter?.name !== "string" || typeof frontmatter.description !== "string") {
+      throw new Error(`The proposed ${filePath} must contain Claude agent name and description frontmatter.`);
+    }
+  }
+  if (filePath.startsWith(".claude/output-styles/")) {
+    const frontmatter = markdownFrontmatter(content);
+    if (typeof frontmatter?.name !== "string" || typeof frontmatter.description !== "string") {
+      throw new Error(`The proposed ${filePath} must contain output-style name and description frontmatter.`);
+    }
+  }
+  if (filePath.startsWith(".codex/agents/")
+    && (!/^name\s*=\s*".+"/m.test(content)
+      || !/^description\s*=\s*".+"/m.test(content)
+      || !/^developer_instructions\s*=/m.test(content))) {
+    throw new Error(`The proposed ${filePath} is missing required Codex agent fields.`);
+  }
+  if (filePath.endsWith(".rules") && !/\bprefix_rule\s*\(/.test(content)) {
+    throw new Error(`The proposed ${filePath} contains no Codex prefix_rule.`);
+  }
+}
+
+function markdownFrontmatter(content: string): Record<string, unknown> | undefined {
+  const match = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(content);
+  if (!match) return undefined;
+  try {
+    const parsed = parseYaml(match[1]) as unknown;
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function validatePortableSkillPairs(
+  files: Array<{ path: InstructionFilePath; content: string }>,
+): void {
+  const byPath = new Map(files.map((file) => [file.path, file.content]));
+  for (const file of files) {
+    const match = /^(?:\.agents|\.claude)\/skills\/([^/]+)\/SKILL\.md$/.exec(file.path);
+    if (!match) continue;
+    const other = file.path.startsWith(".agents/")
+      ? `.claude/skills/${match[1]}/SKILL.md`
+      : `.agents/skills/${match[1]}/SKILL.md`;
+    const otherContent = byPath.get(other as InstructionFilePath);
+    if (otherContent === undefined) throw new Error(`Portable skill '${match[1]}' must be proposed for both Claude and Codex.`);
+    if (otherContent !== file.content) throw new Error(`Portable skill '${match[1]}' must have identical Claude and Codex content.`);
+  }
+}
+
+function rejectEmbeddedSecrets(value: unknown, filePath: string): void {
+  if (Array.isArray(value)) {
+    value.forEach((entry) => rejectEmbeddedSecrets(entry, filePath));
+    return;
+  }
+  if (!isRecord(value)) return;
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === "string"
+      && /(secret|token|password|api[_-]?key|authorization)/i.test(key)
+      && entry.trim()
+      && !/^\$\{?[A-Z][A-Z0-9_]*\}?$/.test(entry.trim())) {
+      throw new Error(`The proposed ${filePath} appears to embed a credential in '${key}'. Use an environment-variable reference instead.`);
+    }
+    rejectEmbeddedSecrets(entry, filePath);
+  }
+}
+
 function relabel(entry: Omit<CodeReviewTranscriptEntry, "at">): Omit<CodeReviewTranscriptEntry, "at"> {
-  if (entry.label === "Review started") return { ...entry, label: "Instruction audit started" };
-  if (entry.label === "Review failed") return { ...entry, label: "Instruction audit failed" };
+  if (entry.label === "Review started") return { ...entry, label: "Agent Workspace scan started" };
+  if (entry.label === "Review failed") return { ...entry, label: "Agent Workspace scan failed" };
   return entry;
 }
 

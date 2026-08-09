@@ -11,8 +11,13 @@ export class InstructionPreviewProvider implements vscode.TextDocumentContentPro
   public readonly onDidChange = this.changed.event;
 
   public setProposal(proposal: InstructionRefreshProposal | undefined): void {
+    const previousPaths = this.proposal?.files.map((file) => file.path) ?? [];
     this.proposal = proposal;
-    for (const file of ["AGENTS.md", "CLAUDE.md"] as const) {
+    const paths = new Set<InstructionFilePath>([
+      ...previousPaths,
+      ...(proposal?.files.map((file) => file.path) ?? []),
+    ]);
+    for (const file of paths) {
       this.changed.fire(this.uri("original", file));
       this.changed.fire(this.uri("proposed", file));
     }
