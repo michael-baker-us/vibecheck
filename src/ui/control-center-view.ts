@@ -226,11 +226,17 @@ export function controlCenterHtml(cspSource: string): string {
     const noMetrics=category=>{ const gate=inCategory(category)[0]; if(!gate)return 'No result yet'; if(gate.summaryUnrecognized)return 'Ran · format not recognised'; if(gate.status==='not-run')return 'Not run yet'; if(gate.status==='running')return 'Running now'; return 'No metrics in output'; };
     const testGate=latest('tests'), coverageGate=latest('coverage'), securityGate=latest('security');
     const gateTone=gate=>!gate?'neutral':gate.status==='passed'?'ready':gate.status==='failed'?'blocked':'incomplete';
+    // Build and quality gates carry no numeric summary, but a required gate that decides readiness
+    // has to be visible as evidence rather than only in the gate list.
+    const METRIC_CATEGORIES=['tests','coverage','security'];
+    const otherGateTiles=()=>{ const categories=[...new Set(s.verification.map(v=>data.categories[v.name]||'other'))].filter(c=>!METRIC_CATEGORIES.includes(c));
+      return categories.map(category=>{ const gates=inCategory(category),worst=gates.find(g=>g.status==='failed')||gates.find(g=>g.status==='stale')||gates.find(g=>g.status==='running')||gates.find(g=>g.status==='not-run')||gates[0];
+        return metric(category,worst?worst.status:'—',gates.length===1?gates[0].name:gates.length+' checks',gateTone(worst)); }); };
     const qualityMetrics=(includeChanges=false)=>{ const metrics=el('div','metrics'); metrics.append(
       metric('Tests',testGate?testGate.summary.passed+'/'+testGate.summary.total:'—',testGate?testGate.summary.failed+' failed · '+testGate.status:noMetrics('tests'),gateTone(testGate)),
       metric('Line coverage',coverageGate?percent(coverageGate.summary.lines):'—',coverageGate?(coverageGate.summary.change?signed(coverageGate.summary.change)+' · ':'')+coverageGate.status:noMetrics('coverage'),gateTone(coverageGate)),
       metric('Security',securityGate?String(securityGate.summary.total):'—',securityGate?securityGate.summary.newIssues+' new · '+securityGate.summary.fixedIssues+' fixed':noMetrics('security'),securityGate&&securityGate.status==='passed'&&securityGate.summary.total?'incomplete':gateTone(securityGate))
-    ); if(includeChanges)metrics.append(metric('Changed files',String(s.changedFiles.length),s.headBranch||'detached HEAD','neutral')); return metrics; };
+    ); metrics.append(...otherGateTiles()); if(includeChanges)metrics.append(metric('Changed files',String(s.changedFiles.length),s.headBranch||'detached HEAD','neutral')); return metrics; };
 
     const pages={status:el('section','page'),review:el('section','page'),quality:el('section','page'),tools:el('section','page')};
     const nav=el('nav','nav'), navItems=[['status','Status'+(open.length?' · '+open.length:'')],['review','Review'],['quality','Quality'],['tools','Tools']];
@@ -316,7 +322,16 @@ export function controlCenterHtml(cspSource: string): string {
     const gates=section('Quality gates',s.verification.length,'quality:gates',true);
     pages.quality.append(el('div','section-intro','Run, inspect, and compare repository-owned checks. Passing evidence becomes stale when relevant inputs change.'));
     if(data.configurationError) gates.content.append(el('div','callout danger','Configuration error: '+data.configurationError));
-    if(data.missingGates.length) { const c=el('div','callout'); c.append(el('strong','', 'Recommended setup missing'),el('p','',data.missingGates.join(', ')+' — add these checks so “ready” means more.')); c.append(button('Configure gates','config')); gates.content.append(c); }
+    const recommendations=data.recommendations||[];
+    const recommendedCategories=new Set(recommendations.map(r=>r.category));
+    const unaddressed=data.missingGates.filter(category=>!recommendedCategories.has(category));
+    if(unaddressed.length) { const c=el('div','callout'); c.append(el('strong','', 'Recommended setup missing'),el('p','',unaddressed.join(', ')+' — add these checks so “ready” means more.')); c.append(button('Configure gates','config')); gates.content.append(c); }
+    // Inert until applied: VibeCheck installs the dependency and promotes the gate only on request.
+    recommendations.forEach(r=>{ const item=el('div','item'),head=el('div','item-head');
+      head.append(el('span','item-title',r.category+' gate available'),el('span','badge incomplete','needs '+r.packages.length+' dependenc'+(r.packages.length===1?'y':'ies')));
+      item.append(head,el('p','',r.reason),el('div','meta','Installs '+r.packages.join(', ')+' · then adds “'+r.gate.name+'” running '+r.gate.command));
+      const actions=el('div','item-actions'); actions.append(button('Install and add gate','apply-recommendation',r.id,'primary'),button('Open configuration file','config',undefined,'ghost'));
+      item.append(actions); gates.content.append(item); });
     gates.content.append(qualityMetrics());
     const qualityActions=el('div','actions single-action'); qualityActions.append(button('Run all checks','run-all',undefined,'primary')); gates.content.append(qualityActions);
     if(!s.verification.length) gates.content.append(el('div','empty','No checks configured yet. Add tests, coverage, and security checks.'));

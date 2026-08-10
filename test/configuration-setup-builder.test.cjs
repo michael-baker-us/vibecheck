@@ -48,6 +48,8 @@ test("requires an explicit explanation when a recommended gate is left unconfigu
     diffExpansionThreshold: 15,
     plans: { include: ["PLAN.md"] },
   });
-  assert.match(prompt, /the single change that\s+would enable it/);
-  assert.match(prompt, /Do not silently omit it/);
+  assert.match(prompt, /Record it under `recommendations` instead/);
+  assert.match(prompt, /A recommendation is inert/);
+  assert.match(prompt, /never an install command, and never flags/);
+  assert.match(prompt, /Never leave a recommended gate unaddressed/);
 });

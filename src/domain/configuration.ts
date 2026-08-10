@@ -64,6 +64,27 @@ export type VerificationCategory =
   | "build"
   | "other";
 
+/**
+ * A gate the repository cannot run yet because a dependency is missing.
+ *
+ * Recommendations are declarative and inert: they describe what would enable the gate, and nothing
+ * is installed or configured until an explicit apply action. The proposing agent never supplies a
+ * command to install with — only the packages — so VibeCheck builds the install itself.
+ */
+export type GateRecommendation = {
+  /** Stable identifier for apply actions, derived from the category and gate name. */
+  id: string;
+  category: VerificationCategory;
+  /** Why the gate cannot run today, shown to the user before they apply anything. */
+  reason: string;
+  /** Dependencies to add. Validated as package tokens, never as shell input. */
+  packages: string[];
+  /** Which package manager to install with. Detected from the repository when omitted. */
+  manager?: string;
+  /** The verification entry to add once the dependencies are present. */
+  gate: VerificationDefinition;
+};
+
 export type BoundaryRule = {
   name: string;
   from: string;
@@ -72,6 +93,7 @@ export type BoundaryRule = {
 
 export type VibeCheckConfiguration = {
   verification: VerificationDefinition[];
+  recommendations: GateRecommendation[];
   boundaries: BoundaryRule[];
   diffExpansionThreshold: number;
   plans: PlanConfiguration;
@@ -92,6 +114,7 @@ export const DEFAULT_PLAN_PATTERNS = [
 
 export const DEFAULT_CONFIGURATION: VibeCheckConfiguration = {
   verification: [],
+  recommendations: [],
   boundaries: [],
   diffExpansionThreshold: 15,
   plans: { include: DEFAULT_PLAN_PATTERNS },

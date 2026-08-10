@@ -71,6 +71,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           instructionRefreshSession: this.getInstructionRefreshSession(),
           providerUsage: this.getProviderUsage(),
           agentAlignment: this.getAgentAlignment(),
+          recommendations: configuration.recommendations,
           modelRouting: readModelRouting(),
           version: this.version,
           alignAgentWorkspace: vscode.workspace.getConfiguration(
@@ -150,6 +151,10 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     }
     if (message.action === "preview-agent-instruction") {
       await vscode.commands.executeCommand("vibecheck.previewAgentInstruction", id);
+      return;
+    }
+    if (message.action === "apply-recommendation" && id) {
+      await vscode.commands.executeCommand("vibecheck.applyGateRecommendation", id);
       return;
     }
     if (message.action === "inspect-review") {

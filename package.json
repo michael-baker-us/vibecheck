@@ -2,7 +2,7 @@
   "name": "vibecheck",
   "displayName": "VibeCheck",
   "description": "Local engineering confidence for AI-assisted coding.",
-  "version": "0.6.14",
+  "version": "0.6.16",
   "private": true,
   "publisher": "local",
   "license": "UNLICENSED",
@@ -234,6 +234,10 @@
         "command": "vibecheck.deleteData",
         "title": "Delete Local Observation Data",
         "category": "VibeCheck"
+      },
+      {
+        "command": "vibecheck.applyGateRecommendation",
+        "title": "VibeCheck: Install Dependency and Add Recommended Gate"
       }
     ],
     "viewsContainers": {

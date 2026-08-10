@@ -8,6 +8,7 @@ import { LocalEventReader } from "./adapters/local-event-reader";
 import { AgentInstructionAlignmentService } from "./agent-instructions/alignment-service";
 import { InstructionRefreshService } from "./agent-instructions/refresh-service";
 import { AgentPermissionGrants } from "./providers/claude-cli";
+import { RecommendationService } from "./config/recommendation-service";
 import { buildAgentCapabilityTemplate, isAgentCapabilityTemplateId } from "./agent-instructions/capability-template";
 import { AgentWorkspaceResetService } from "./agent-instructions/reset-service";
 import { AnalysisEngine } from "./analyzers/analysis-engine";
@@ -339,6 +340,48 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (error) {
         void vscode.window.showErrorMessage(`Could not align skill '${name}': ${String(error)}`);
       }
+    }),
+    vscode.commands.registerCommand("vibecheck.applyGateRecommendation", async (id?: string) => {
+      const snapshot = controller.getSnapshot();
+      if (snapshot.kind !== "ready" || typeof id !== "string") return;
+      const recommendation = controller.getConfiguration().recommendations.find((item) => item.id === id);
+      if (!recommendation) return;
+
+      const service = new RecommendationService();
+      let plan;
+      try {
+        plan = await service.plan(snapshot.state.repositoryRoot, recommendation);
+      } catch (error) {
+        void vscode.window.showErrorMessage((error as Error).message);
+        return;
+      }
+
+      // The exact argument vector is shown before anything runs; this is a dependency change.
+      const choice = await vscode.window.showWarningMessage(
+        `Install ${recommendation.packages.join(", ")} with ${plan.manager.label}?`,
+        {
+          modal: true,
+          detail: `Runs: ${plan.argv.join(" ")}\n\nOn success VibeCheck adds the "${recommendation.gate.name}" gate to .vibecheck/config.yaml running: ${recommendation.gate.command}`,
+        },
+        "Install and Add Gate",
+      );
+      if (choice !== "Install and Add Gate") return;
+
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Installing ${recommendation.packages.join(", ")}`, cancellable: true },
+        async (_progress, token) => {
+          const abort = new AbortController();
+          token.onCancellationRequested(() => abort.abort());
+          try {
+            const outcome = await service.apply(snapshot.state.repositoryRoot, recommendation, abort.signal);
+            await controller.refresh();
+            controlCenter.refresh();
+            void vscode.window.showInformationMessage(`Added the "${outcome.gateName}" gate. Run it to collect evidence.`);
+          } catch (error) {
+            void vscode.window.showErrorMessage((error as Error).message);
+          }
+        },
+      );
     }),
     vscode.commands.registerCommand("vibecheck.setAgentAlignment", async (enabled?: boolean) => {
       if (typeof enabled !== "boolean") return;

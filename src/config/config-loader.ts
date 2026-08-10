@@ -10,7 +10,9 @@ import {
   VerificationDefinition,
   VerificationFormat,
   VERIFICATION_FORMATS,
+  GateRecommendation,
 } from "../domain/configuration";
+import { PACKAGE_MANAGER_IDS, PackageManagerId, isSafePackageToken } from "./package-managers";
 
 type RawConfiguration = {
   verification?: Array<{
@@ -21,6 +23,13 @@ type RawConfiguration = {
     required?: unknown;
     format?: unknown;
     report_path?: unknown;
+  }>;
+  recommendations?: Array<{
+    category?: unknown;
+    reason?: unknown;
+    packages?: unknown;
+    manager?: unknown;
+    gate?: unknown;
   }>;
   boundaries?: Array<{
     name?: unknown;
@@ -42,11 +51,13 @@ export class ConfigLoader {
       ...config,
       ...rules,
       verification: config.verification ?? rules.verification,
+      recommendations: config.recommendations ?? rules.recommendations,
       boundaries: rules.boundaries ?? config.boundaries,
     };
 
     return {
       verification: this.parseVerification(merged.verification),
+      recommendations: this.parseRecommendations(merged.recommendations),
       boundaries: this.parseBoundaries(merged.boundaries),
       diffExpansionThreshold: this.positiveInteger(
         merged.diff_expansion_threshold,
@@ -71,20 +82,21 @@ export class ConfigLoader {
     }
   }
 
-  private parseVerification(raw: RawConfiguration["verification"]): VerificationDefinition[] {
+  private parseVerification(raw: RawConfiguration["verification"], prefix = "verification"): VerificationDefinition[] {
     if (!raw) return [];
-    if (!Array.isArray(raw)) throw new Error("verification must be an array.");
+    if (!Array.isArray(raw)) throw new Error(`${prefix} must be an array.`);
     return raw.map((item, index) => {
-      const name = this.nonEmptyString(item.name, `verification[${index}].name`);
-      const command = this.nonEmptyString(item.command, `verification[${index}].command`);
+      const at = prefix === "verification" ? `${prefix}[${index}]` : prefix;
+      const name = this.nonEmptyString(item?.name, `${at}.name`);
+      const command = this.nonEmptyString(item.command, `${at}.command`);
       const invalidatedBy = this.stringArray(
         item.invalidated_by,
-        `verification[${index}].invalidated_by`,
+        `${at}.invalidated_by`,
       );
-      const category = this.verificationCategory(item.category, `verification[${index}].category`);
-      const required = item.required === undefined ? true : this.boolean(item.required, `verification[${index}].required`);
-      const format = this.verificationFormat(item.format, `verification[${index}].format`);
-      const reportPath = this.reportPath(item.report_path, `verification[${index}].report_path`);
+      const category = this.verificationCategory(item.category, `${at}.category`);
+      const required = item.required === undefined ? true : this.boolean(item.required, `${at}.required`);
+      const format = this.verificationFormat(item.format, `${at}.format`);
+      const reportPath = this.reportPath(item.report_path, `${at}.report_path`);
       return {
         name,
         command,
@@ -93,6 +105,43 @@ export class ConfigLoader {
         required,
         ...(format ? { format } : {}),
         ...(reportPath ? { reportPath } : {}),
+      };
+    });
+  }
+
+  /**
+   * Recommendations arrive from a provider session, so every field is validated before it can
+   * reach workspace state. Packages must look like packages rather than options, and the manager
+   * must be one VibeCheck knows how to invoke; anything else fails the load loudly.
+   */
+  private parseRecommendations(raw: RawConfiguration["recommendations"]): GateRecommendation[] {
+    if (!raw) return [];
+    if (!Array.isArray(raw)) throw new Error("recommendations must be an array.");
+    return raw.map((item, index) => {
+      const field = `recommendations[${index}]`;
+      const category = this.verificationCategory(item.category, `${field}.category`);
+      if (!category) throw new Error(`${field}.category is required.`);
+      const reason = this.nonEmptyString(item.reason, `${field}.reason`);
+      const packages = this.stringArray(item.packages, `${field}.packages`);
+      if (!packages.length) throw new Error(`${field}.packages must list at least one dependency.`);
+      for (const token of packages) {
+        if (!isSafePackageToken(token)) {
+          throw new Error(`${field}.packages contains an entry that is not a plain package name: ${token}`);
+        }
+      }
+      const manager = item.manager === undefined ? undefined : this.nonEmptyString(item.manager, `${field}.manager`);
+      if (manager && !PACKAGE_MANAGER_IDS.includes(manager as PackageManagerId)) {
+        throw new Error(`${field}.manager must be one of: ${PACKAGE_MANAGER_IDS.join(", ")}.`);
+      }
+      const [gate] = this.parseVerification([item.gate as never], `${field}.gate`);
+      if (!gate) throw new Error(`${field}.gate is required.`);
+      return {
+        id: `${category}:${gate.name}`,
+        category,
+        reason,
+        packages,
+        ...(manager ? { manager } : {}),
+        gate: { ...gate, ...(gate.category ? {} : { category }) },
       };
     });
   }

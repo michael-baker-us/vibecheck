@@ -20,6 +20,7 @@ test("loads verification and boundary configuration from local YAML", async (con
   );
   assert.deepEqual(await new ConfigLoader().load(root), {
     verification: [{ name: "tests", command: "npm test", invalidatedBy: ["src/**", "tests/**"], required: true }],
+    recommendations: [],
     boundaries: [{ name: "isolation", from: "src/input/**", cannotImport: ["src/game/**"] }],
     diffExpansionThreshold: 8,
     plans: { include: ["PLAN.md", "plans/*.md"], active: "plans/current.md" },

@@ -368,7 +368,8 @@ const BASE_PAYLOAD = {
     claudeDeep: "claude-opus-5",
   },
   alignAgentWorkspace: false,
-  version: "0.6.13",
+  // Read from the manifest so documentation never advertises a stale version.
+  version: require("../../package.json").version,
 };
 
 /**

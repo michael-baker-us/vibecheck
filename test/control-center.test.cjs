@@ -41,6 +41,9 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /format: or report_path:/);
   assert.match(source, /Ran · format not recognised/);
   assert.match(source, /const noMetrics=category=>/);
+  assert.match(source, /const otherGateTiles=\(\)=>/);
+  assert.match(source, /METRIC_CATEGORIES=\[.tests.,.coverage.,.security.\]/);
+  assert.match(source, /metrics\.append\(\.\.\.otherGateTiles\(\)\)/);
   assert.match(source, /v\.summaryFormat/);
   assert.match(source, /showView\('tools'\)/);
   assert.match(source, /pages\.tools\.append\(changeSummary\.card\)/);

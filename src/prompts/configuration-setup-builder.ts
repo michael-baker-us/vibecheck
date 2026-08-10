@@ -1,5 +1,6 @@
 import { VibeCheckConfiguration } from "../domain/configuration";
 import { CLAUDE_TOOL_GUIDANCE } from "../providers/claude-cli";
+import { PACKAGE_MANAGER_IDS } from "../config/package-managers";
 
 export function buildConfigurationSetupPrompt(
   configuration: VibeCheckConfiguration,
@@ -107,9 +108,32 @@ as the security gate. Use the equivalent built-in audit command for whichever ec
 repository uses, when one exists that requires no installation.
 
 Coverage often does need a dependency, such as a coverage provider for the configured test runner.
-When a recommended gate cannot be configured without adding a dependency or a package script, leave
-it out of the YAML and state plainly in your summary which gate is missing, the single change that
-would enable it, and the exact command it would then use. Do not silently omit it.
+When a recommended gate needs a dependency the repository does not have, do not install it and do
+not add it to \`verification\`. Record it under \`recommendations\` instead:
+
+\`\`\`yaml
+recommendations:
+  - category: coverage
+    reason: The configured test runner has no coverage provider installed.
+    packages:
+      - <exact dependency name>
+    manager: npm # optional; detected from the repository when omitted
+    gate:
+      name: coverage
+      category: coverage
+      required: true
+      command: <command that works once the dependency is installed>
+      invalidated_by:
+        - src/**
+\`\`\`
+
+A recommendation is inert. VibeCheck shows it to the user, and only an explicit action installs the
+dependency and promotes \`gate\` into \`verification\`. List dependencies as plain names in
+\`packages\` — never an install command, and never flags. \`manager\` accepts:
+${PACKAGE_MANAGER_IDS.join(", ")}.
+
+Never leave a recommended gate unaddressed: configure it, or record a recommendation explaining
+what it needs.
 
 ## Decision rules
 
