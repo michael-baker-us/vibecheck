@@ -406,11 +406,11 @@ const CAPTURES = [
     payload: BASE_PAYLOAD,
   },
   {
-    name: "tools",
-    file: "vibecheck-tools.png",
+    name: "settings",
+    file: "vibecheck-settings.png",
     webviewState: {
-      activeView: "tools",
-      expandedSections: ["tools:change-summary", "tools:usage"],
+      activeView: "settings",
+      expandedSections: ["settings:usage", "settings:model-routing"],
       agentFileOwner: "claude",
     },
     payload: BASE_PAYLOAD,

@@ -85,6 +85,10 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
 
   private async handle(message: WebviewMessage): Promise<void> {
     if (typeof message.action !== "string") return;
+    if (message.action === "run-review" && message.options !== undefined) {
+      await vscode.commands.executeCommand("vibecheck.runCodeReview", message.options);
+      return;
+    }
     if (message.action === "summarize-changes" && message.options !== undefined) {
       await vscode.commands.executeCommand("vibecheck.summarizeChanges", message.options);
       return;

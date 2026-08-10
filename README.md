@@ -6,17 +6,17 @@ VibeCheck is a VS Code extension that observes a Git-backed workspace, surfaces 
 
 ## See VibeCheck in action
 
-The Control Center is a single Activity Bar panel with four tabs.
+The Control Center is a single Activity Bar panel with four tabs: Status, Quality, Review, and Settings.
 
 | Status | Review |
 | --- | --- |
 | [![VibeCheck Status tab showing a readiness verdict, current test, coverage, security, and changed-file evidence, and three open findings](docs/images/vibecheck-status.png)](docs/images/vibecheck-status.png) | [![VibeCheck Review tab showing a completed Claude deep review with its activity summary and three defects located at specific files and lines](docs/images/vibecheck-review.png)](docs/images/vibecheck-review.png) |
 | One readiness verdict, the evidence behind it, and the findings still holding it back. | Explicit Codex or Claude semantic review, with every defect tied to a file and line. |
 
-| Quality | Tools |
+| Quality | Settings |
 | --- | --- |
-| [![VibeCheck Quality tab showing four repository-owned gates where typecheck, tests, and dependency security passed and core coverage went stale](docs/images/vibecheck-quality.png)](docs/images/vibecheck-quality.png) | [![VibeCheck Tools tab showing the change summary form and provider usage windows for Codex and Claude](docs/images/vibecheck-tools.png)](docs/images/vibecheck-tools.png) |
-| Repository-owned gates keep their command, result, timing, and report — and go stale when inputs change. | Change summaries, README maintenance, provider usage, and local-data controls. |
+| [![VibeCheck Quality tab showing four repository-owned gates where typecheck, tests, and dependency security passed and core coverage went stale](docs/images/vibecheck-quality.png)](docs/images/vibecheck-quality.png) | [![VibeCheck Settings tab showing model routing and provider usage windows for Codex and Claude](docs/images/vibecheck-settings.png)](docs/images/vibecheck-settings.png) |
+| Repository-owned gates keep their command, result, timing, and report — and go stale when inputs change. | Model routing, provider usage, the agent workspace, and local-data controls. |
 
 Screenshots are generated from the real panel with `npm run screenshots`; see [docs/screenshots/](docs/screenshots/).
 
@@ -197,7 +197,7 @@ npm run package:vsix
 Install a locally packaged build with:
 
 ```bash
-code --install-extension packages/vibecheck-0.6.17.vsix --force
+code --install-extension packages/vibecheck-0.6.18.vsix --force
 ```
 
 Reload the target VS Code window after installation.

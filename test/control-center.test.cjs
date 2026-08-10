@@ -11,7 +11,7 @@ test("ships a syntactically valid task-oriented Control Center", () => {
 
   assert.ok(script, "expected an embedded webview script");
   assert.doesNotThrow(() => new Function(script));
-  for (const view of ["Status", "Review", "Quality", "Tools"]) {
+  for (const view of ["Status", "Review", "Quality", "Settings"]) {
     assert.match(source, new RegExp(`'${view}'`));
   }
   assert.match(source, /Change confidence/);
@@ -45,16 +45,20 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /METRIC_CATEGORIES=\[.tests.,.coverage.,.security.\]/);
   assert.match(source, /metrics\.append\(\.\.\.otherGateTiles\(\)\)/);
   assert.match(source, /v\.summaryFormat/);
-  assert.match(source, /showView\('tools'\)/);
-  assert.match(source, /pages\.tools\.append\(changeSummary\.card\)/);
-  assert.match(source, /section\('Change summary','Markdown','tools:change-summary'/);
+  assert.match(source, /showView\('review'\)/);
+  assert.match(source, /pages\.review\.append\(changeSummary\.card\)/);
+  assert.match(source, /pages\.review\.append\(readme\.card\)/);
+  assert.match(source, /navItems=\[\['status'.*\['quality','Quality'\],\['review','Review'\],\['settings','Settings'\]\]/);
+  assert.match(source, /tools:'settings'/, "an existing saved Tools selection must migrate");
+  assert.doesNotMatch(source, /pages\.tools\b/);
+  assert.match(source, /section\('Change summary','Markdown','review:change-summary'/);
   assert.match(source, /Working tree changes vs HEAD/);
   assert.match(source, /Source branch → target branch/);
   assert.match(source, /Fetch the latest target branch from its remote/);
   assert.match(source, /Clear review/);
   assert.match(source, /vibecheck\.clearCodeReview/);
   assert.match(source, /Claude & Codex usage/);
-  assert.match(source, /pages\.tools\.append\(usage\.card\)/);
+  assert.match(source, /pages\.settings\.append\(usage\.card\)/);
   assert.match(source, /Codex \/status and Claude \/usage/);
   assert.match(source, /Refresh usage/);
   assert.match(source, /usage-track/);
@@ -134,4 +138,18 @@ test("keeps regex escapes intact through the webview template literal", () => {
   const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script, "expected an embedded webview script");
   assert.doesNotThrow(() => new Function(script));
+});
+
+test("offers a revision range for code review, matching the change summary form", () => {
+  const source = uiSource("control-center-view.ts");
+
+  assert.match(source, /section\('Review scope','Working tree','review:scope'/);
+  assert.match(source, /reviewOptions=\(\)=>\(\{mode:rvMode\.value/);
+  assert.match(source, /action:'run-review',options:reviewOptions\(\)/);
+  for (const mode of ["working-tree", "branches", "commits"]) {
+    assert.match(source, new RegExp(`'${mode}'`), `review scope must offer ${mode}`);
+  }
+  // A completed review has to say what it actually covered.
+  assert.match(source, /const scopeLabel=reviewState\.range/);
+  assert.match(uiSource("control-center.ts"), /message\.action === "run-review" && message\.options !== undefined/);
 });

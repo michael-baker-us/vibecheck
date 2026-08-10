@@ -7,6 +7,7 @@ const {
   normalizeReviewEvent,
   normalizeReviewTranscriptEvent,
   parseCodeReviewOutput,
+  reviewPrompt,
 } = require("../dist/reviews/code-review-service");
 
 test("passes the selected model and effort explicitly to each CLI", () => {
@@ -160,4 +161,42 @@ test("distinguishes Claude initialization from repeated thinking system events",
     normalizeReviewEvent("claude", { type: "system", subtype: "thinking_tokens" }),
     { label: "Analyzing changes" },
   );
+});
+
+test("reviews an explicit revision range instead of the working tree", () => {
+  const range = {
+    scope: "commits",
+    base: "abc123",
+    target: "def456",
+    baseLabel: "main (merge base)",
+    targetLabel: "feature/x",
+  };
+  const scoped = reviewPrompt(range);
+  assert.match(scoped, /git diff abc123\.\.def456/);
+  assert.match(scoped, /git log abc123\.\.def456/);
+  assert.doesNotMatch(scoped, /uncommitted working-tree/);
+
+  const working = reviewPrompt();
+  assert.match(working, /uncommitted working-tree changes against HEAD/);
+  assert.doesNotMatch(working, /git diff \w+\.\./);
+
+  // The shared review rules apply to both scopes.
+  for (const prompt of [scoped, working]) {
+    assert.match(prompt, /at most 10 concrete, actionable defects/);
+    assert.match(prompt, /Do not modify files/);
+  }
+});
+
+test("passes the range into both providers' arguments", () => {
+  const selection = { provider: "claude", profile: "deep", model: "claude-opus-5", effort: "high" };
+  const range = { scope: "commits", base: "aaa", target: "bbb", baseLabel: "aaa", targetLabel: "bbb" };
+
+  const claude = claudeReviewArguments(selection, range);
+  assert.match(claude.at(-1), /git diff aaa\.\.bbb/);
+  assert.ok(claude.includes("dontAsk"), "a non-interactive review must not use plan mode");
+  assert.match(claude.join(" "), /Bash\(git log \*\)/, "a range review needs commit history");
+  assert.doesNotMatch(claude.join(" "), /Write|Edit/, "reviews stay read-only");
+
+  const codex = codexReviewArguments({ ...selection, provider: "codex" }, "/tmp/s.json", "/tmp/r.json", range);
+  assert.match(codex.at(-1), /git diff aaa\.\.bbb/);
 });

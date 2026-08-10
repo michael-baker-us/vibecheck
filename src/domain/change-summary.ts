@@ -1,13 +1,7 @@
-import { CodeReviewSelection } from "./code-review";
+import { CodeReviewSelection, RevisionRange } from "./code-review";
 import { CodeReviewTranscriptEntry } from "./code-review";
 
-export type ChangeSummaryRange = {
-  scope: "working-tree" | "commits";
-  base: string;
-  target: string;
-  baseLabel: string;
-  targetLabel: string;
-};
+export type ChangeSummaryRange = RevisionRange;
 
 export type ChangeSummaryRequest = ChangeSummaryRange & CodeReviewSelection;
 

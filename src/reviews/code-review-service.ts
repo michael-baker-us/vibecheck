@@ -4,12 +4,14 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
+import { CLAUDE_READ_ONLY_TOOLS } from "../providers/claude-cli";
 import {
   CodeReviewFinding,
   CodeReviewProvider,
   CodeReviewResult,
   CodeReviewSelection,
   CodeReviewTranscriptEntry,
+  RevisionRange,
 } from "../domain/code-review";
 
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
@@ -43,14 +45,26 @@ const REVIEW_SCHEMA = {
   required: ["summary", "findings"],
 } as const;
 
-const REVIEW_PROMPT = [
-  "Review the uncommitted working-tree changes against HEAD.",
+/**
+ * Builds the review instruction for a scope.
+ *
+ * A fixed revision range is reviewed with an explicit diff command so the provider reads the same
+ * comparison the user chose, rather than whatever happens to be uncommitted right now.
+ */
+export function reviewPrompt(range?: RevisionRange): string {
+  const scope = range && range.scope === "commits"
+    ? `Review the changes between ${range.base} and ${range.target} using: git diff ${range.base}..${range.target}. Use git log ${range.base}..${range.target} for commit context.`
+    : "Review the uncommitted working-tree changes against HEAD.";
+  return [scope, ...REVIEW_RULES].join(" ");
+}
+
+const REVIEW_RULES = [
   "Report at most 10 concrete, actionable defects introduced by the diff; omit pre-existing problems.",
   "Use high only for security, data loss, crashes, or broadly broken behavior; medium for reproducible functional defects; info for bounded maintainability risks with a concrete future cost.",
   "Keep the summary to 3 sentences and each explanation to 3 sentences covering the defect, impact, and trigger.",
   "Do not modify files. Avoid style preferences, praise, speculation, and duplicate findings. Use repository-relative paths and changed-line numbers.",
   "Return an empty findings array when no defects are found.",
-].join(" ");
+];
 
 export class CodeReviewService {
   public async run(
@@ -59,10 +73,11 @@ export class CodeReviewService {
     signal?: AbortSignal,
     onProgress?: (progress: ReviewProgress) => void,
     onTranscript?: (entry: Omit<CodeReviewTranscriptEntry, "at">) => void,
+    range?: RevisionRange,
   ): Promise<CodeReviewResult> {
     return selection.provider === "codex"
-      ? this.runCodex(selection, repositoryRoot, signal, onProgress, onTranscript)
-      : this.runClaude(selection, repositoryRoot, signal, onProgress, onTranscript);
+      ? this.runCodex(selection, repositoryRoot, signal, onProgress, onTranscript, range)
+      : this.runClaude(selection, repositoryRoot, signal, onProgress, onTranscript, range);
   }
 
   private async runCodex(
@@ -71,6 +86,7 @@ export class CodeReviewService {
     signal?: AbortSignal,
     onProgress?: (progress: ReviewProgress) => void,
     onTranscript?: (entry: Omit<CodeReviewTranscriptEntry, "at">) => void,
+    range?: RevisionRange,
   ): Promise<CodeReviewResult> {
     const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "vibecheck-review-"));
     const schemaPath = path.join(temporaryDirectory, "schema.json");
@@ -79,7 +95,7 @@ export class CodeReviewService {
       await writeFile(schemaPath, JSON.stringify(REVIEW_SCHEMA), "utf8");
       await this.runStreaming(
         "codex",
-        codexReviewArguments(selection, schemaPath, resultPath),
+        codexReviewArguments(selection, schemaPath, resultPath, range),
         repositoryRoot,
         "codex",
         signal,
@@ -98,10 +114,11 @@ export class CodeReviewService {
     signal?: AbortSignal,
     onProgress?: (progress: ReviewProgress) => void,
     onTranscript?: (entry: Omit<CodeReviewTranscriptEntry, "at">) => void,
+    range?: RevisionRange,
   ): Promise<CodeReviewResult> {
     const events = await this.runStreaming(
       "claude",
-      claudeReviewArguments(selection),
+      claudeReviewArguments(selection, range),
       repositoryRoot,
       "claude",
       signal,
@@ -183,6 +200,7 @@ export function codexReviewArguments(
   selection: CodeReviewSelection,
   schemaPath: string,
   resultPath: string,
+  range?: RevisionRange,
 ): string[] {
   return [
     "exec",
@@ -198,11 +216,11 @@ export function codexReviewArguments(
     "--output-last-message",
     resultPath,
     "--json",
-    REVIEW_PROMPT,
+    reviewPrompt(range),
   ];
 }
 
-export function claudeReviewArguments(selection: CodeReviewSelection): string[] {
+export function claudeReviewArguments(selection: CodeReviewSelection, range?: RevisionRange): string[] {
   return [
     "--print",
     "--model",
@@ -215,11 +233,11 @@ export function claudeReviewArguments(selection: CodeReviewSelection): string[] 
     "--json-schema",
     JSON.stringify(REVIEW_SCHEMA),
     "--permission-mode",
-    "plan",
+    "dontAsk",
     "--allowed-tools",
-    "Read,Grep,Glob,Bash(git diff *),Bash(git status *)",
+    CLAUDE_READ_ONLY_TOOLS,
     "--no-session-persistence",
-    REVIEW_PROMPT,
+    reviewPrompt(range),
   ];
 }
 

@@ -17,7 +17,7 @@ import { GitCollector } from "./collectors/git-collector";
 import { PlanCollector } from "./collectors/plan-collector";
 import { ConfigLoader } from "./config/config-loader";
 import { ConfigurationSetupService } from "./config/configuration-setup-service";
-import { CodeReviewFinding, CodeReviewSelection } from "./domain/code-review";
+import { CodeReviewFinding, CodeReviewSelection, RevisionRange } from "./domain/code-review";
 import { ChangeSummaryRange, ChangeSummarySession } from "./domain/change-summary";
 import { ConfigurationSetupSession } from "./domain/configuration-setup";
 import { InstructionFilePath, InstructionRefreshProposal, InstructionRefreshScope, InstructionRefreshSession } from "./domain/instruction-refresh";
@@ -185,7 +185,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await runVerification(controller, definition.name);
       }
     }),
-    vscode.commands.registerCommand("vibecheck.runCodeReview", () => runCodeReview(controller)),
+    vscode.commands.registerCommand("vibecheck.runCodeReview", (options?: unknown) => runCodeReview(controller, git, options)),
     vscode.commands.registerCommand("vibecheck.clearCodeReview", () => clearCodeReview(controller)),
     vscode.commands.registerCommand("vibecheck.inspectCodeReviewFinding", (findingId?: string) =>
       inspectCodeReviewFinding(controller, findingId),
@@ -633,18 +633,44 @@ async function runVerificationCommand(
   if (name) await runVerification(controller, name);
 }
 
-async function runCodeReview(controller: ObservationController): Promise<void> {
+async function runCodeReview(
+  controller: ObservationController,
+  git: GitCollector,
+  options?: unknown,
+): Promise<void> {
   const snapshot = controller.getSnapshot();
   if (snapshot.kind !== "ready") return;
-  if (!snapshot.state.changedFiles.length) {
-    void vscode.window.showInformationMessage("There are no uncommitted changes to review.");
-    return;
-  }
   if (!vscode.workspace.isTrusted) {
     void vscode.window.showWarningMessage("Trust this VS Code workspace before invoking a review provider.");
     return;
   }
-  const choice = await chooseProviderModel("Choose code review provider and model", "review");
+
+  // A configured range comes from the Review tab form; without one the working tree is reviewed.
+  const configured = parseChangeSummaryOptions(options);
+  let range: RevisionRange | undefined;
+  if (configured) {
+    try {
+      range = await resolveRevisionRange(
+        snapshot.state.repositoryRoot,
+        snapshot.state.baselineCommit,
+        snapshot.state.headBranch,
+        git,
+        configured,
+        "review",
+      );
+    } catch (error) {
+      void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    if (!range) return;
+  } else if (!snapshot.state.changedFiles.length) {
+    void vscode.window.showInformationMessage("There are no uncommitted changes to review.");
+    return;
+  }
+
+  const choice = configured
+    ? summaryModelSelection(configured.model)
+    : await chooseProviderModel("Choose code review provider and model", "review");
   if (!choice) return;
   const selection: CodeReviewSelection = choice;
   try {
@@ -657,7 +683,7 @@ async function runCodeReview(controller: ObservationController): Promise<void> {
       async (_progress, token) => {
         const abort = new AbortController();
         token.onCancellationRequested(() => abort.abort());
-        await controller.runCodeReview(selection, abort.signal);
+        await controller.runCodeReview(selection, abort.signal, range);
       },
     );
     const current = controller.getSnapshot();
@@ -770,6 +796,58 @@ type ChangeSummaryOptions = {
   model: "codex-balanced" | "codex-deep" | "claude-balanced" | "claude-deep";
 };
 
+/**
+ * Resolves form options into a concrete revision range.
+ *
+ * Shared by change summaries and code reviews so both interpret source, target, and the
+ * merge-base semantics of a branch comparison identically.
+ */
+async function resolveRevisionRange(
+  repositoryRoot: string,
+  head: string,
+  headBranch: string | undefined,
+  git: GitCollector,
+  options: ChangeSummaryOptions,
+  verb: string,
+): Promise<RevisionRange | undefined> {
+  if (options.mode === "working-tree") {
+    if (await git.isWorkingTreeClean(repositoryRoot)) {
+      void vscode.window.showInformationMessage(`There are no working-tree changes to ${verb}.`);
+      return undefined;
+    }
+    return { scope: "working-tree", base: head, target: head, baseLabel: "HEAD", targetLabel: "working tree" };
+  }
+
+  if (!options.source?.trim() || !options.target?.trim()) {
+    throw new Error(options.mode === "branches" ? "Enter both source and target branches." : "Enter both commit hashes or refs.");
+  }
+  const sourceLabel = options.source.trim();
+  const targetLabel = options.target.trim();
+  const source = await git.resolveCommit(repositoryRoot, sourceLabel);
+  let target: string;
+  let resolvedTargetLabel = targetLabel;
+  if (options.mode === "branches" && options.fetchLatest) {
+    const remote = options.remote?.trim() || "origin";
+    target = await git.fetchBranch(repositoryRoot, remote, targetLabel);
+    resolvedTargetLabel = `${remote}/${targetLabel}`;
+  } else {
+    target = await git.resolveCommit(repositoryRoot, targetLabel);
+  }
+  const base = options.mode === "branches" ? await git.mergeBase(repositoryRoot, target, source) : source;
+  const comparisonTarget = options.mode === "branches" ? source : target;
+  if (!await git.hasChangesBetween(repositoryRoot, base, comparisonTarget)) {
+    void vscode.window.showInformationMessage(`The selected revisions have no changes to ${verb}.`);
+    return undefined;
+  }
+  return {
+    scope: "commits",
+    base,
+    target: comparisonTarget,
+    baseLabel: options.mode === "branches" ? `${resolvedTargetLabel} (merge base)` : sourceLabel,
+    targetLabel: options.mode === "branches" ? (sourceLabel || headBranch || "HEAD") : targetLabel,
+  };
+}
+
 async function summarizeConfiguredChanges(
   repositoryRoot: string,
   head: string,
@@ -781,54 +859,13 @@ async function summarizeConfiguredChanges(
 ): Promise<void> {
   const selection = summaryModelSelection(options.model);
   try {
-    if (options.mode === "working-tree") {
-      if (await git.isWorkingTreeClean(repositoryRoot)) {
-        void vscode.window.showInformationMessage("There are no working-tree changes to summarize.");
-        return;
-      }
-      await createChangeSummary(service, repositoryRoot, {
-        scope: "working-tree",
-        base: head,
-        target: head,
-        baseLabel: "HEAD",
-        targetLabel: "working tree",
-      }, selection, onSessionChanged);
-      return;
-    }
-
-    if (!options.source?.trim() || !options.target?.trim()) {
-      throw new Error(options.mode === "branches" ? "Enter both source and target branches." : "Enter both commit hashes or refs.");
-    }
-    const sourceLabel = options.source.trim();
-    const targetLabel = options.target.trim();
-    const source = await git.resolveCommit(repositoryRoot, sourceLabel);
-    let target: string;
-    let resolvedTargetLabel = targetLabel;
-    if (options.mode === "branches" && options.fetchLatest) {
-      const remote = options.remote?.trim() || "origin";
-      target = await git.fetchBranch(repositoryRoot, remote, targetLabel);
-      resolvedTargetLabel = `${remote}/${targetLabel}`;
-    } else {
-      target = await git.resolveCommit(repositoryRoot, targetLabel);
-    }
-    const base = options.mode === "branches" ? await git.mergeBase(repositoryRoot, target, source) : source;
-    const comparisonTarget = options.mode === "branches" ? source : target;
-    if (!await git.hasChangesBetween(repositoryRoot, base, comparisonTarget)) {
-      void vscode.window.showInformationMessage("The selected revisions have no changes to summarize.");
-      return;
-    }
-    await createChangeSummary(service, repositoryRoot, {
-      scope: "commits",
-      base,
-      target: comparisonTarget,
-      baseLabel: options.mode === "branches" ? `${resolvedTargetLabel} (merge base)` : sourceLabel,
-      targetLabel: options.mode === "branches" ? (sourceLabel || headBranch || "HEAD") : targetLabel,
-    }, selection, onSessionChanged);
+    const range = await resolveRevisionRange(repositoryRoot, head, headBranch, git, options, "summarize");
+    if (!range) return;
+    await createChangeSummary(service, repositoryRoot, range, range.scope === "working-tree" ? selection : selection, onSessionChanged);
   } catch (error) {
     void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
   }
 }
-
 function parseChangeSummaryOptions(value: unknown): ChangeSummaryOptions | undefined {
   if (!isPlainRecord(value)) return undefined;
   const modes = ["working-tree", "branches", "commits"];

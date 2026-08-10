@@ -6,6 +6,15 @@ export type CodeReviewSelection = {
   model: string;
   effort: "medium" | "high";
 };
+/** A comparison to review or summarize: the working tree, or a fixed pair of revisions. */
+export type RevisionRange = {
+  scope: "working-tree" | "commits";
+  base: string;
+  target: string;
+  baseLabel: string;
+  targetLabel: string;
+};
+
 export type CodeReviewStatus = "running" | "completed" | "failed" | "stale";
 export type CodeReviewSeverity = "info" | "medium" | "high";
 
@@ -38,6 +47,8 @@ export type CodeReviewState = {
   model: string;
   effort: "medium" | "high";
   status: CodeReviewStatus;
+  /** Absent for a working-tree review, which is the default. */
+  range?: RevisionRange;
   baselineCommit: string;
   changeFingerprint: string;
   startedAt: string;

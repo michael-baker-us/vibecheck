@@ -10,7 +10,7 @@ import { PlanCollector } from "./collectors/plan-collector";
 import { WorkspaceWatcher } from "./collectors/workspace-watcher";
 import { ConfigLoader } from "./config/config-loader";
 import { AgentEvent } from "./domain/agent-events";
-import { CodeReviewProvider, CodeReviewSelection, CodeReviewTranscriptEntry } from "./domain/code-review";
+import { CodeReviewProvider, CodeReviewSelection, CodeReviewTranscriptEntry, RevisionRange } from "./domain/code-review";
 import {
   DEFAULT_CONFIGURATION,
   VibeCheckConfiguration,
@@ -228,7 +228,7 @@ export class ObservationController implements vscode.Disposable {
     await this.refresh();
   }
 
-  public async runCodeReview(selection: CodeReviewSelection, signal?: AbortSignal): Promise<void> {
+  public async runCodeReview(selection: CodeReviewSelection, signal?: AbortSignal, range?: RevisionRange): Promise<void> {
     if (this.snapshot.kind !== "ready") return;
     const { provider } = selection;
     const state = this.snapshot.state;
@@ -244,6 +244,7 @@ export class ObservationController implements vscode.Disposable {
         model: selection.model,
         effort: selection.effort,
         status: "running",
+        ...(range ? { range } : {}),
         baselineCommit: state.baselineCommit,
         changeFingerprint,
         startedAt,
@@ -255,7 +256,7 @@ export class ObservationController implements vscode.Disposable {
       const result = await this.codeReviews.run(selection, state.repositoryRoot, signal, (progress) => {
         this.reviewActivityQueue = this.reviewActivityQueue.then(() =>
           this.appendReviewActivity(provider, startedAt, progress.label, progress.detail));
-      }, (entry) => this.appendReviewTranscript(entry));
+      }, (entry) => this.appendReviewTranscript(entry), range);
       await this.reviewActivityQueue;
       await this.mutateState((current) => ({
         ...current,
@@ -264,7 +265,8 @@ export class ObservationController implements vscode.Disposable {
           profile: selection.profile,
           model: selection.model,
           effort: selection.effort,
-          status: this.changeFingerprint(current.changedFiles) === changeFingerprint ? "completed" : "stale",
+          status: range?.scope === "commits" || this.changeFingerprint(current.changedFiles) === changeFingerprint ? "completed" : "stale",
+          ...(range ? { range } : {}),
           baselineCommit: state.baselineCommit,
           changeFingerprint,
           startedAt,
@@ -418,6 +420,7 @@ export class ObservationController implements vscode.Disposable {
       );
       const codeReview = this.snapshot.state.codeReview
         && this.snapshot.state.codeReview.status === "completed"
+        && this.snapshot.state.codeReview.range?.scope !== "commits"
         && this.snapshot.state.codeReview.changeFingerprint !== this.changeFingerprint(changedFiles)
         ? { ...this.snapshot.state.codeReview, status: "stale" as const }
         : this.snapshot.state.codeReview;
