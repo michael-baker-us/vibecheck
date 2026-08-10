@@ -31,16 +31,9 @@
 
 ## Team
 
-This repository defines a persistent engineering team (hash `dc66e1c0a55a04ee`).
+This repository defines a persistent engineering team (hash `e3b0c44298fc1c14`).
 Use the smallest team capable of doing the work well; for trivial changes, proceed directly.
 
-- **Pam** — Product Manager and Team Lead. Use when a request is vague, broad, or has unclear scope, to turn it into concrete requirements and acceptance criteria and to decide which specialists are needed. Do not use for implementation, architecture, or review. _(reads the repository; makes no changes)_
-- **Scout** — Investigator and Debugger. Use to investigate an unknown problem before anyone changes code: tracing a crash, finding a root cause, locating where behavior actually lives, or exploring an unfamiliar subsystem. Produces findings and evidence, not fixes. _(reads the repository and runs package-manager checks)_
-- **Archy** — Architect. Use before implementing cross-cutting changes, new subsystems, major refactors, or decisions that are expensive to reverse. Produces a design and implementation tasks. Do not use for routine changes that fit existing patterns. _(reads the repository; makes no changes)_
-- **Cody** — Coder. Use to implement a defined change: features, bug fixes, refactors, and their tests. Follows an existing design when one exists. Escalates rather than redesigning architecture when an assumption turns out to be wrong. _(reads and edits files, and runs package-manager checks)_
-- **Tristan** — Tester. Use to verify behavior independently once a change is implemented: deriving edge cases from acceptance criteria, reproducing failures, and hunting regressions. Adds adversarial test reasoning beyond simply running the existing suite. _(reads the repository and runs package-manager checks)_
-- **Renee** — Reviewer. Use for final independent engineering review before work is considered ready to ship. Assesses correctness, requirements coverage, maintainability, security, and regression risk, and returns an explicit approved, changes-requested, or blocked verdict. _(reads the repository; makes no changes)_
-
-Full role definitions live in `.vibecheck/agents/`. Claude Code additionally loads these as native subagents from `.claude/agents/`.
+No team members are currently enabled.
 
 <!-- vibecheck-team:end -->
