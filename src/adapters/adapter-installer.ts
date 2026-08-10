@@ -12,7 +12,21 @@ type HookConfiguration = {
   [key: string]: unknown;
 };
 
-const EVENTS = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PostToolUse"];
+/**
+ * `Stop` and `SubagentStop` mark the end of a turn and of a delegation; without them a session
+ * appears to run forever. `SubagentStart` and `PreToolUse` carry the delegation identifier and the
+ * tool a session is currently running, which is what the Team activity view reports.
+ */
+const EVENTS = [
+  "SessionStart",
+  "SessionEnd",
+  "UserPromptSubmit",
+  "PreToolUse",
+  "PostToolUse",
+  "SubagentStart",
+  "SubagentStop",
+  "Stop",
+];
 
 export class AdapterInstaller {
   private readonly installRoot: string;
@@ -44,8 +58,14 @@ export class AdapterInstaller {
       const groups = (configuration.hooks[event] ??= []);
       if (!groups.some((group) => group.hooks?.some((handler) => handler.command === command))) {
         groups.push({
-          ...(event === "PostToolUse" ? { matcher: "*" } : {}),
-          hooks: [{ type: "command", command, timeout: event === "SessionEnd" ? 3 : 10 }],
+          ...(event === "PostToolUse" || event === "PreToolUse" ? { matcher: "*" } : {}),
+          // Tool hooks sit on the critical path of every call, so they get a short budget; the
+          // bridge only appends a line, and a slow one must never stall a session.
+          hooks: [{
+            type: "command",
+            command,
+            timeout: event === "SessionEnd" || event.endsWith("ToolUse") ? 3 : 10,
+          }],
         });
       }
     }

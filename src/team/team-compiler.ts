@@ -63,15 +63,16 @@ export function claudeAgentPath(memberId: string): string {
 }
 
 /**
- * Identifies the roster content a compiled file was generated from. Only the fields that reach the
- * compiled output are hashed, so cosmetic roster edits do not report every member as drifted.
+ * Identifies the roster fields the generated frontmatter was built from.
+ *
+ * The body is excluded on purpose: it is authored in place, so editing it must never be reported as
+ * drift. Only frontmatter is VibeCheck's to own.
  */
 export function memberFingerprint(member: TeamMember): string {
   return createHash("sha256")
     .update(member.description).update("\0")
     .update(member.tier).update("\0")
     .update(member.tools).update("\0")
-    .update(member.body.trim()).update("\0")
     .digest("hex")
     .slice(0, 16);
 }
@@ -110,7 +111,13 @@ export function enabledMembers(roster: TeamRoster, provider: "claude" | "codex")
   return rosterMembers(roster).filter((member) => member.providers.includes(provider));
 }
 
-export function compileClaudeAgent(member: TeamMember): string {
+/**
+ * Rebuilds a member's subagent file: generated frontmatter over the body already in the file.
+ *
+ * `existing` is the current file contents, if any. Its body is carried through verbatim so the
+ * prompt the user wrote is never overwritten by a roster edit.
+ */
+export function compileClaudeAgent(member: TeamMember, existing?: string, fallbackBody?: string): string {
   const frontmatter = [
     "---",
     `name: ${member.id}`,
@@ -120,7 +127,22 @@ export function compileClaudeAgent(member: TeamMember): string {
     "---",
   ].join("\n");
   const watermark = `<!-- vibecheck-team: id=${member.id}; hash=${memberFingerprint(member)} -->`;
-  return `${frontmatter}\n${watermark}\n\n${body(member)}\n`;
+  const authored = (existing === undefined ? undefined : extractBody(existing))
+    || fallbackBody?.trim()
+    || `You are ${member.name}, the ${member.title.toLowerCase()} for this repository.`;
+  return `${frontmatter}\n${watermark}\n\n${authored}\n`;
+}
+
+/**
+ * The authored prose of a subagent file: everything after the frontmatter, minus the watermark.
+ * Files without frontmatter are treated as body-only, so a hand-written subagent adopted into the
+ * roster keeps its content.
+ */
+export function extractBody(content: string): string {
+  const withoutFrontmatter = /^---\n[\s\S]*?\n---\n?/.test(content)
+    ? content.replace(/^---\n[\s\S]*?\n---\n?/, "")
+    : content;
+  return withoutFrontmatter.replace(WATERMARK_PATTERN, "").trim();
 }
 
 /**
@@ -183,13 +205,19 @@ export function readTeamBlock(existing: string): string | undefined {
 }
 
 /**
- * Every file the roster owns, for the current roster and the current `AGENTS.md` contents.
- * `existingInstructions` is passed in rather than read so this stays pure and testable.
+ * Every file the roster owns. Current file contents are passed in rather than read so this stays
+ * pure: `existingAgents` maps member id to the current subagent file, and `fallbackBodies` supplies
+ * a starting prompt for members that have no file yet.
  */
-export function compileRoster(roster: TeamRoster, existingInstructions: string): TeamCompiledFile[] {
+export function compileRoster(
+  roster: TeamRoster,
+  existingInstructions: string,
+  existingAgents: Readonly<Record<string, string>> = {},
+  fallbackBodies: Readonly<Record<string, string>> = {},
+): TeamCompiledFile[] {
   const files: TeamCompiledFile[] = enabledMembers(roster, "claude").map((member) => ({
     path: claudeAgentPath(member.id),
-    content: compileClaudeAgent(member),
+    content: compileClaudeAgent(member, existingAgents[member.id], fallbackBodies[member.id]),
     memberId: member.id,
   }));
   files.push({
@@ -197,11 +225,6 @@ export function compileRoster(roster: TeamRoster, existingInstructions: string):
     content: applyTeamBlock(existingInstructions, compileTeamBlock(roster)),
   });
   return files;
-}
-
-function body(member: TeamMember): string {
-  const trimmed = member.body.trim();
-  return trimmed || `You are ${member.name}, the ${member.title.toLowerCase()} for this repository.`;
 }
 
 /** Collapses prose to a single line so it is safe in YAML frontmatter and in a Markdown list item. */

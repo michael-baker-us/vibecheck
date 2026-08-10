@@ -1,16 +1,15 @@
 /**
  * Reads and validates the team roster.
  *
- * The roster is split across two kinds of file so each is edited in its natural form: structured
- * fields live in `.vibecheck/team.yaml`, and each member's role prompt lives in
- * `.vibecheck/agents/<id>.md` as plain Markdown with no frontmatter. Frontmatter on the compiled
- * output is generated, never authored.
+ * `.vibecheck/team.yaml` holds only the structured half of each member. The prose role prompt is
+ * authored once, in the body of `.claude/agents/<id>.md`, and is never copied here — VibeCheck owns
+ * that file's frontmatter and nothing else.
  *
  * Validation is strict and loud, matching `ConfigLoader`: a malformed roster is reported rather
  * than silently repaired, because the result is written into files the coding agents obey.
  */
 
-import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import * as path from "node:path";
 
 import { parse, stringify } from "yaml";
@@ -34,10 +33,13 @@ import {
 
 export const TEAM_DIRECTORY = ".vibecheck";
 export const TEAM_ROSTER_PATH = ".vibecheck/team.yaml";
-export const TEAM_BODY_DIRECTORY = ".vibecheck/agents";
 
-/** Guards against a pathological roster becoming an unreadable prompt in every session. */
-const MAX_BODY_BYTES = 64 * 1024;
+/**
+ * Where role prompts lived before the single-source refactor. Still read once, so an existing
+ * repository keeps the prompts it already authored, and removed as part of the next apply.
+ */
+export const LEGACY_BODY_DIRECTORY = ".vibecheck/agents";
+
 const MAX_MEMBERS = 24;
 
 type RawMember = {
@@ -57,8 +59,8 @@ type RawRoster = {
   members?: unknown;
 };
 
-export function bodyPath(memberId: string): string {
-  return `${TEAM_BODY_DIRECTORY}/${memberId}.md`;
+export function legacyBodyPath(memberId: string): string {
+  return `${LEGACY_BODY_DIRECTORY}/${memberId}.md`;
 }
 
 export class TeamLoader {
@@ -95,7 +97,6 @@ export class TeamLoader {
         tools: this.oneOf(item.tools, TEAM_TOOL_PROFILES, `${at}.tools`) as TeamToolProfile,
         providers: this.providers(item.providers, `${at}.providers`),
         enabled: item.enabled === undefined ? true : this.boolean(item.enabled, `${at}.enabled`),
-        body: await this.readBody(repositoryRoot, id),
       });
     }
 
@@ -117,12 +118,9 @@ export class TeamLoader {
     };
   }
 
-  /**
-   * Writes the roster back out. Structured fields go to `team.yaml` and bodies to their own files,
-   * so the round trip through `load` is lossless.
-   */
+  /** Writes the structured roster back out. Role prompts are not VibeCheck's to rewrite. */
   public async save(repositoryRoot: string, roster: TeamRoster): Promise<void> {
-    await mkdir(path.join(repositoryRoot, TEAM_BODY_DIRECTORY), { recursive: true });
+    await mkdir(path.join(repositoryRoot, TEAM_DIRECTORY), { recursive: true });
     const document = {
       version: roster.version,
       policy: { provider: roster.policy.provider, profile: roster.policy.profile },
@@ -140,8 +138,9 @@ export class TeamLoader {
     const header = [
       "# VibeCheck team roster.",
       "#",
-      "# This file and .vibecheck/agents/*.md are the source of truth. VibeCheck compiles them into",
-      "# .claude/agents/*.md and the managed Team block in AGENTS.md; edit those only through here.",
+      "# Structured fields only. Each member's role prompt is the body of .claude/agents/<id>.md,",
+      "# authored there directly; VibeCheck regenerates that file's frontmatter and the managed Team",
+      "# block in AGENTS.md from this file.",
       "",
     ].join("\n");
     await writeFile(
@@ -149,17 +148,6 @@ export class TeamLoader {
       `${header}${stringify(document, { lineWidth: 100 })}`,
       "utf8",
     );
-    for (const member of roster.members) {
-      await writeFile(
-        path.join(repositoryRoot, bodyPath(member.id)),
-        `${member.body.trim()}\n`,
-        "utf8",
-      );
-    }
-  }
-
-  public async removeBody(repositoryRoot: string, memberId: string): Promise<void> {
-    await rm(path.join(repositoryRoot, bodyPath(memberId)), { force: true });
   }
 
   private async readYaml(filePath: string): Promise<RawRoster | undefined> {
@@ -175,23 +163,6 @@ export class TeamLoader {
       throw new Error(`${TEAM_ROSTER_PATH} must contain a YAML object.`);
     }
     return value as RawRoster;
-  }
-
-  /**
-   * A missing body file is tolerated: the roster still describes the member, and the compiler
-   * falls back to a minimal role statement rather than failing the whole load.
-   */
-  private async readBody(repositoryRoot: string, memberId: string): Promise<string> {
-    try {
-      const body = await readFile(path.join(repositoryRoot, bodyPath(memberId)), "utf8");
-      if (Buffer.byteLength(body, "utf8") > MAX_BODY_BYTES) {
-        throw new Error(`${bodyPath(memberId)} exceeds ${MAX_BODY_BYTES / 1024} KB.`);
-      }
-      return body;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
-      throw error;
-    }
   }
 
   private memberId(value: unknown, at: string): string {

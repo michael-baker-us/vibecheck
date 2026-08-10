@@ -23,6 +23,7 @@ Screenshots are generated from the real panel with `npm run screenshots`; see [d
 ## What it provides
 
 - A VibeCheck Activity Bar Control Center, status bar, and diagnostics for local repository state.
+- An Activity Bar notification badge that mirrors the Status readiness verdict, counting the outstanding reasons whenever the Status page reports "Checks needed" or "Action needed".
 - Git- and workspace-based observation with start, pause, refresh, and local-data deletion controls.
 - Deterministic findings for runtime dependency changes, deleted or skipped/focused tests, removed assertions, sensitive-file changes, generated or binary additions, broad diffs, and configured import-boundary violations.
 - Explicit, trusted verification commands with pass/fail/stale state, input hashing, bounded output retention, and secret-assignment redaction.

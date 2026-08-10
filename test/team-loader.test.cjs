@@ -1,10 +1,10 @@
 const assert = require("node:assert/strict");
-const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = require("node:fs");
+const { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const test = require("node:test");
 
-const { TeamLoader, bodyPath } = require("../dist/team/team-loader");
+const { TeamLoader, legacyBodyPath } = require("../dist/team/team-loader");
 const { DEFAULT_TEAM } = require("../dist/team/default-team");
 
 const createRepository = (context) => {
@@ -36,25 +36,17 @@ test("returns undefined when the repository has no roster", async (context) => {
   assert.equal(await new TeamLoader().load(root), undefined);
 });
 
-test("loads a roster and pairs each member with its body file", async (context) => {
+test("loads the structured roster without touching role prompts", async (context) => {
   const root = createRepository(context);
   writeRoster(root, VALID);
-  writeFileSync(join(root, bodyPath("cody")), "You are Cody.\n", "utf8");
 
   const roster = await new TeamLoader().load(root);
   assert.deepEqual(roster.policy, { provider: "prefer-claude", profile: "economy" });
   assert.equal(roster.members.length, 1);
   assert.deepEqual(roster.members[0].providers, ["claude"]);
-  assert.equal(roster.members[0].body, "You are Cody.\n");
-});
-
-// A member without a body file is still a usable roster entry; the compiler falls back to a
-// minimal role statement rather than failing the whole load.
-test("tolerates a missing body file", async (context) => {
-  const root = createRepository(context);
-  writeRoster(root, VALID);
-  const roster = await new TeamLoader().load(root);
-  assert.equal(roster.members[0].body, "");
+  // The prompt lives in .claude/agents/<id>.md and is never copied into the roster.
+  assert.equal(roster.members[0].body, undefined);
+  assert.equal(legacyBodyPath("cody"), ".vibecheck/agents/cody.md");
 });
 
 test("applies defaults for optional fields", async (context) => {
@@ -129,16 +121,11 @@ test("round-trips the seeded team through save and load without loss", async (co
     assert.equal(member.tier, original.tier);
     assert.equal(member.tools, original.tools);
     assert.deepEqual(member.providers, original.providers);
-    assert.equal(member.body.trim(), original.body.trim());
   }
 });
 
-test("removes a member body file", async (context) => {
+test("saving the roster writes no role-prompt files of its own", async (context) => {
   const root = createRepository(context);
-  const loader = new TeamLoader();
-  await loader.save(root, DEFAULT_TEAM);
-  await loader.removeBody(root, "cody");
-
-  const roster = await loader.load(root);
-  assert.equal(roster.members.find((member) => member.id === "cody").body, "");
+  await new TeamLoader().save(root, DEFAULT_TEAM);
+  assert.deepEqual(readdirSync(join(root, ".vibecheck", "agents")), []);
 });

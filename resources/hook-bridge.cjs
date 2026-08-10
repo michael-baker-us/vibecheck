@@ -21,10 +21,25 @@ process.stdin.on("end", () => {
       SessionStart: "session-start",
       SessionEnd: "session-end",
       UserPromptSubmit: "prompt",
+      PreToolUse: "tool-started",
       PostToolUse: "tool-finished",
+      SubagentStart: "subagent-start",
+      SubagentStop: "subagent-stop",
       Stop: "turn-stop",
     }[eventName];
     if (!type) return;
+
+    /**
+     * Which team member a delegation went to. This is the only tool argument the bridge reads, and
+     * it is accepted only when it looks like a roster identifier: bounded charset, bounded length,
+     * no paths or prose. The extension drops it again unless it matches a configured member.
+     * Task descriptions and prompts are never read.
+     */
+    const input_ = payload.tool_input ?? payload.toolInput;
+    const candidate = input_ && typeof input_ === "object" ? input_.subagent_type : undefined;
+    const member = typeof candidate === "string" && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(candidate)
+      ? candidate
+      : undefined;
 
     const directory = join(homedir(), ".vibecheck");
     const eventPath = join(directory, "events.jsonl");
@@ -39,13 +54,14 @@ process.stdin.on("end", () => {
       // The active event file may not exist yet.
     }
     const event = {
-      version: 1,
+      version: 2,
       id: randomUUID(),
       agent,
       type,
       workspace: typeof payload.cwd === "string" ? payload.cwd : process.cwd(),
       sessionId: typeof payload.session_id === "string" ? payload.session_id : undefined,
       tool: typeof payload.tool_name === "string" ? payload.tool_name : undefined,
+      member,
       at: new Date().toISOString(),
     };
     appendFileSync(eventPath, `${JSON.stringify(event)}\n`, { encoding: "utf8", mode: 0o600 });

@@ -23,18 +23,19 @@ import {
   TeamRoster,
   TeamStatus,
 } from "../domain/team";
-import { DEFAULT_TEAM } from "./default-team";
+import { DEFAULT_BODIES, DEFAULT_TEAM } from "./default-team";
 import {
   INSTRUCTIONS_PATH,
   claudeAgentPath,
   compileRoster,
   compileTeamBlock,
   enabledMembers,
+  extractBody,
   memberFingerprint,
   parseTeamWatermark,
   readTeamBlock,
 } from "./team-compiler";
-import { TEAM_ROSTER_PATH, TeamLoader, bodyPath } from "./team-loader";
+import { TEAM_ROSTER_PATH, TeamLoader, legacyBodyPath } from "./team-loader";
 
 export type TeamFilePreview = {
   path: string;
@@ -96,7 +97,8 @@ export class TeamService {
 
   public async preview(repositoryRoot: string, roster: TeamRoster): Promise<TeamPreview> {
     const instructions = await readOptional(path.join(repositoryRoot, INSTRUCTIONS_PATH));
-    const compiled = compileRoster(roster, instructions ?? "");
+    const existing = await this.existingBodies(repositoryRoot, roster);
+    const compiled = compileRoster(roster, instructions ?? "", existing, DEFAULT_BODIES);
     this.assertAllowed(compiled);
     const files = await Promise.all(compiled.map(async (file) => {
       const originalContent = await readOptional(path.join(repositoryRoot, file.path));
@@ -202,7 +204,6 @@ export class TeamService {
       members: roster.members.filter((member) => member.id !== memberId),
     };
     await this.loader.save(repositoryRoot, next);
-    await this.loader.removeBody(repositoryRoot, memberId);
     return next;
   }
 
@@ -233,8 +234,44 @@ export class TeamService {
     return next;
   }
 
+  /** Where a member's role prompt is authored. */
   public bodyPath(memberId: string): string {
-    return bodyPath(memberId);
+    return claudeAgentPath(memberId);
+  }
+
+  /**
+   * Current subagent file contents, keyed by member id, so the compiler can carry each authored body
+   * through unchanged.
+   *
+   * Repositories created before the single-source refactor keep their prompts in
+   * `.vibecheck/agents/`. Those are read once here, which migrates them into the subagent file on
+   * the next apply; `legacyBodies` then reports them for removal.
+   */
+  private async existingBodies(
+    repositoryRoot: string,
+    roster: TeamRoster,
+  ): Promise<Record<string, string>> {
+    const bodies: Record<string, string> = {};
+    for (const member of roster.members) {
+      const current = await readOptional(path.join(repositoryRoot, claudeAgentPath(member.id)));
+      if (current !== undefined && extractBody(current)) {
+        bodies[member.id] = current;
+        continue;
+      }
+      const legacy = await readOptional(path.join(repositoryRoot, legacyBodyPath(member.id)));
+      if (legacy !== undefined && legacy.trim()) bodies[member.id] = legacy;
+    }
+    return bodies;
+  }
+
+  /** Legacy role-prompt files that the current apply makes redundant. */
+  public async legacyBodies(repositoryRoot: string, roster: TeamRoster): Promise<string[]> {
+    const found: string[] = [];
+    for (const member of roster.members) {
+      const relative = legacyBodyPath(member.id);
+      if (await readOptional(path.join(repositoryRoot, relative)) !== undefined) found.push(relative);
+    }
+    return found;
   }
 
   private async claudeFileStatus(repositoryRoot: string, member: TeamMember): Promise<TeamFileStatus> {

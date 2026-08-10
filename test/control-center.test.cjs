@@ -53,6 +53,10 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /grid-template-columns:repeat\(5,minmax\(0,1fr\)\)/);
   assert.match(source, /\.nav \{ grid-template-columns:repeat\(3,minmax\(0,1fr\)\); \}/);
   assert.match(source, /pages\.team\.append\(roster\.card\)/);
+  assert.match(source, /pages\.team\.append\(activity\.card\)/);
+  // The activity view must keep saying what it cannot see, so the limit is never mistaken for a bug.
+  assert.match(source, /cannot see what a session was asked to do/);
+  assert.match(source, /Adapter update available/);
   // The Team panel must keep stating that VibeCheck maintains the roster but never runs the agents.
   assert.match(source, /never launches these agents/);
   assert.match(source, /tools:'settings'/, "an existing saved Tools selection must migrate");
@@ -160,4 +164,11 @@ test("offers a revision range for code review, matching the change summary form"
   // A completed review has to say what it actually covered.
   assert.match(source, /const scopeLabel=reviewState\.range/);
   assert.match(uiSource("control-center.ts"), /message\.action === "run-review" && message\.options !== undefined/);
+});
+
+test("mirrors the Status page readiness onto the view badge", () => {
+  const source = uiSource("control-center.ts");
+
+  assert.match(source, /readinessBadge/);
+  assert.match(source, /this\.view\.badge = readinessBadge\(readiness\)/);
 });

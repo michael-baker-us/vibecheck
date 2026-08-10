@@ -33,6 +33,13 @@ export const TEAM_PROFILES: readonly TeamProfile[] = ["economy", "balanced", "ma
  */
 export const TEAM_MEMBER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 
+/**
+ * The structured half of a member, owned by `.vibecheck/team.yaml`.
+ *
+ * The prose role prompt is deliberately not here: it is authored once, in the body of
+ * `.claude/agents/<id>.md`, and VibeCheck only ever regenerates that file's frontmatter. Keeping a
+ * second copy of the prompt was pure duplication, since it compiled to exactly one native target.
+ */
 export type TeamMember = {
   id: string;
   name: string;
@@ -43,8 +50,6 @@ export type TeamMember = {
   tools: TeamToolProfile;
   providers: TeamProvider[];
   enabled: boolean;
-  /** Prose role prompt loaded from `.vibecheck/agents/<id>.md`. */
-  body: string;
 };
 
 export type TeamPolicy = {
@@ -87,6 +92,34 @@ export type TeamStatus = {
   roster: TeamFileStatus;
   instructions: TeamFileStatus;
 };
+
+export type TeamSessionStatus = "active" | "idle" | "ended";
+
+/**
+ * One observed provider session, reconstructed from hook lifecycle events.
+ *
+ * `member` is present only when the session's most recent delegation named a configured roster
+ * member. Everything here is metadata: what a session was asked to do, and what it produced, is
+ * deliberately not observable.
+ */
+export type TeamSessionActivity = {
+  sessionId: string;
+  agent: "codex" | "claude";
+  member?: string;
+  status: TeamSessionStatus;
+  startedAt: string;
+  lastEventAt: string;
+  lastTool?: string;
+  toolCount: number;
+};
+
+export type TeamActivity = {
+  sessions: TeamSessionActivity[];
+  /** True once a v2 event arrives, so the panel can tell an old adapter from a quiet one. */
+  attributionCapable: boolean;
+};
+
+export const EMPTY_TEAM_ACTIVITY: TeamActivity = { sessions: [], attributionCapable: false };
 
 export type TeamSnapshot =
   | { kind: "absent" }

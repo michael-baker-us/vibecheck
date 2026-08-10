@@ -5,6 +5,7 @@ const {
   calculateReadiness,
   categoryFor,
   missingRecommendedCategories,
+  readinessBadge,
 } = require("../dist/domain/quality-gates");
 
 const definition = (name, command, category) => ({
@@ -45,4 +46,24 @@ test("requires configured checks to pass and high-risk findings to be resolved",
   const result = calculateReadiness([finding], [{ ...check, status: "stale" }]);
   assert.equal(result.status, "blocked");
   assert.equal(result.reasons.length, 2);
+});
+
+test("badges the view whenever the Status page is not reporting current checks", () => {
+  assert.equal(readinessBadge(undefined), undefined);
+  assert.equal(readinessBadge({ status: "ready", label: "Checks current", reasons: [] }), undefined);
+
+  const incomplete = readinessBadge({
+    status: "incomplete",
+    label: "Checks needed",
+    reasons: ["1 required check not complete", "Missing recommended gates: coverage"],
+  });
+  assert.equal(incomplete.value, 2);
+  assert.match(incomplete.tooltip, /^VibeCheck: Checks needed\n/);
+  assert.match(incomplete.tooltip, /• Missing recommended gates: coverage$/);
+
+  // A status can be non-ready without enumerated reasons; the badge still has to be visible.
+  assert.deepEqual(readinessBadge({ status: "blocked", label: "Action needed", reasons: [] }), {
+    value: 1,
+    tooltip: "VibeCheck: Action needed",
+  });
 });

@@ -6,7 +6,7 @@ import { ConfigurationSetupSession } from "../domain/configuration-setup";
 import { InstructionRefreshSession } from "../domain/instruction-refresh";
 import { ReadmeMaintenanceSession } from "../domain/readme-maintenance";
 import { AgentAlignmentSnapshot } from "../agent-instructions/alignment-service";
-import { categoryFor, calculateReadiness, missingRecommendedCategories } from "../domain/quality-gates";
+import { categoryFor, calculateReadiness, missingRecommendedCategories, readinessBadge } from "../domain/quality-gates";
 import { ObservationSnapshot } from "../domain/observation-state";
 import { TeamSnapshot } from "../domain/team";
 import { ProviderUsageSnapshot } from "../usage/provider-usage-service";
@@ -56,6 +56,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           reasons: [...baseReadiness.reasons, `Missing recommended gates: ${missingGates.join(", ")}`],
         }
       : baseReadiness;
+    this.view.badge = readinessBadge(readiness);
     const payload = snapshot.kind === "ready"
       ? {
           kind: "ready",

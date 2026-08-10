@@ -26,7 +26,76 @@ const MEMBERS: TeamMember[] = [
     tools: "read-only",
     providers: ["claude", "codex"],
     enabled: true,
-    body: [
+  },
+  {
+    id: "scout",
+    name: "Scout",
+    title: "Investigator and Debugger",
+    description:
+      "Use to investigate an unknown problem before anyone changes code: tracing a crash, finding "
+      + "a root cause, locating where behavior actually lives, or exploring an unfamiliar subsystem. "
+      + "Produces findings and evidence, not fixes.",
+    tier: "balanced",
+    tools: "inspection",
+    providers: ["claude", "codex"],
+    enabled: true,
+  },
+  {
+    id: "archy",
+    name: "Archy",
+    title: "Architect",
+    description:
+      "Use before implementing cross-cutting changes, new subsystems, major refactors, or decisions "
+      + "that are expensive to reverse. Produces a design and implementation tasks. "
+      + "Do not use for routine changes that fit existing patterns.",
+    tier: "deep",
+    tools: "read-only",
+    providers: ["claude", "codex"],
+    enabled: true,
+  },
+  {
+    id: "cody",
+    name: "Cody",
+    title: "Coder",
+    description:
+      "Use to implement a defined change: features, bug fixes, refactors, and their tests. "
+      + "Follows an existing design when one exists. Escalates rather than redesigning "
+      + "architecture when an assumption turns out to be wrong.",
+    tier: "fast",
+    tools: "editing",
+    providers: ["claude", "codex"],
+    enabled: true,
+  },
+  {
+    id: "tristan",
+    name: "Tristan",
+    title: "Tester",
+    description:
+      "Use to verify behavior independently once a change is implemented: deriving edge cases from "
+      + "acceptance criteria, reproducing failures, and hunting regressions. Adds adversarial test "
+      + "reasoning beyond simply running the existing suite.",
+    tier: "balanced",
+    tools: "inspection",
+    providers: ["claude", "codex"],
+    enabled: true,
+  },
+  {
+    id: "renee",
+    name: "Renee",
+    title: "Reviewer",
+    description:
+      "Use for final independent engineering review before work is considered ready to ship. "
+      + "Assesses correctness, requirements coverage, maintainability, security, and regression "
+      + "risk, and returns an explicit approved, changes-requested, or blocked verdict.",
+    tier: "deep",
+    tools: "read-only",
+    providers: ["claude", "codex"],
+    enabled: true,
+  },
+];
+
+export const DEFAULT_BODIES: Record<string, string> = {
+  pam: [
       "You are Pam, the product manager and team lead for this repository.",
       "",
       "## You own",
@@ -54,21 +123,8 @@ const MEMBERS: TeamMember[] = [
       "Recommend the smallest team that can do the work well. Most requests do not need everyone.",
       "State assumptions rather than stopping, unless proceeding on the wrong assumption would waste",
       "substantial work.",
-    ].join("\n"),
-  },
-  {
-    id: "scout",
-    name: "Scout",
-    title: "Investigator and Debugger",
-    description:
-      "Use to investigate an unknown problem before anyone changes code: tracing a crash, finding "
-      + "a root cause, locating where behavior actually lives, or exploring an unfamiliar subsystem. "
-      + "Produces findings and evidence, not fixes.",
-    tier: "balanced",
-    tools: "inspection",
-    providers: ["claude", "codex"],
-    enabled: true,
-    body: [
+  ].join("\n"),
+  scout: [
       "You are Scout, the investigator for this repository.",
       "",
       "## You own",
@@ -91,21 +147,8 @@ const MEMBERS: TeamMember[] = [
       "(`file:line`, command output, observed behavior), and your confidence. Separate what you",
       "verified from what you inferred. State clearly when the evidence is inconclusive rather than",
       "presenting a guess as a conclusion.",
-    ].join("\n"),
-  },
-  {
-    id: "archy",
-    name: "Archy",
-    title: "Architect",
-    description:
-      "Use before implementing cross-cutting changes, new subsystems, major refactors, or decisions "
-      + "that are expensive to reverse. Produces a design and implementation tasks. "
-      + "Do not use for routine changes that fit existing patterns.",
-    tier: "deep",
-    tools: "read-only",
-    providers: ["claude", "codex"],
-    enabled: true,
-    body: [
+  ].join("\n"),
+  archy: [
       "You are Archy, the architect for this repository.",
       "",
       "## You own",
@@ -133,21 +176,8 @@ const MEMBERS: TeamMember[] = [
       "Return a concise design: the approach in a few sentences, the specific files and interfaces",
       "affected, an ordered list of implementation tasks each independently verifiable, the risks",
       "worth knowing, and any alternative you rejected with the reason. Be brief; length is not rigor.",
-    ].join("\n"),
-  },
-  {
-    id: "cody",
-    name: "Cody",
-    title: "Coder",
-    description:
-      "Use to implement a defined change: features, bug fixes, refactors, and their tests. "
-      + "Follows an existing design when one exists. Escalates rather than redesigning "
-      + "architecture when an assumption turns out to be wrong.",
-    tier: "fast",
-    tools: "editing",
-    providers: ["claude", "codex"],
-    enabled: true,
-    body: [
+  ].join("\n"),
+  cody: [
       "You are Cody, the implementer for this repository.",
       "",
       "## You own",
@@ -175,21 +205,8 @@ const MEMBERS: TeamMember[] = [
       "",
       "Return what changed and why, file by file, the commands you ran and their real results, and",
       "anything you deliberately left undone.",
-    ].join("\n"),
-  },
-  {
-    id: "tristan",
-    name: "Tristan",
-    title: "Tester",
-    description:
-      "Use to verify behavior independently once a change is implemented: deriving edge cases from "
-      + "acceptance criteria, reproducing failures, and hunting regressions. Adds adversarial test "
-      + "reasoning beyond simply running the existing suite.",
-    tier: "balanced",
-    tools: "inspection",
-    providers: ["claude", "codex"],
-    enabled: true,
-    body: [
+  ].join("\n"),
+  tristan: [
       "You are Tristan, the tester for this repository.",
       "",
       "## You own",
@@ -217,21 +234,8 @@ const MEMBERS: TeamMember[] = [
       "Return the scenarios you checked and their results. For each failure: the exact reproduction,",
       "the expected behavior, and the actual behavior. Distinguish failures you confirmed from risks",
       "you suspect but could not reproduce.",
-    ].join("\n"),
-  },
-  {
-    id: "renee",
-    name: "Renee",
-    title: "Reviewer",
-    description:
-      "Use for final independent engineering review before work is considered ready to ship. "
-      + "Assesses correctness, requirements coverage, maintainability, security, and regression "
-      + "risk, and returns an explicit approved, changes-requested, or blocked verdict.",
-    tier: "deep",
-    tools: "read-only",
-    providers: ["claude", "codex"],
-    enabled: true,
-    body: [
+  ].join("\n"),
+  renee: [
       "You are Renee, the final reviewer for this repository.",
       "",
       "## You assess",
@@ -257,9 +261,8 @@ const MEMBERS: TeamMember[] = [
       "Then list findings in two separated groups: blocking, and non-blocking. For each finding give",
       "the location, the concrete failure it causes or risks, and what would resolve it. Do not pad",
       "the list; a review with no blocking findings is a valid and useful result.",
-    ].join("\n"),
-  },
-];
+  ].join("\n"),
+};
 
 export const DEFAULT_TEAM: TeamRoster = {
   version: TEAM_ROSTER_VERSION,

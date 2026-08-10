@@ -6,7 +6,7 @@ import { createInterface } from "node:readline";
 
 import * as vscode from "vscode";
 
-import { AgentEvent } from "../domain/agent-events";
+import { AGENT_EVENT_TYPES, AgentEvent, AgentEventType } from "../domain/agent-events";
 
 export class LocalEventReader implements vscode.Disposable {
   private readonly eventPath = path.join(homedir(), ".vibecheck", "events.jsonl");
@@ -60,20 +60,28 @@ export class LocalEventReader implements vscode.Disposable {
     }
   }
 
+  /**
+   * Version 1 is still accepted: `install()` only replaces the bridge when the user reinstalls the
+   * adapter, so an older bridge keeps emitting v1 lines after the extension updates.
+   *
+   * `member` is re-validated here rather than trusted. The bridge already bounds it, but this file
+   * is plain text on disk that anything could append to.
+   */
   private validate(value: unknown): AgentEvent | undefined {
     if (!value || typeof value !== "object") return undefined;
     const event = value as Partial<AgentEvent>;
     if (
-      event.version !== 1 ||
+      (event.version !== 1 && event.version !== 2) ||
       typeof event.id !== "string" ||
       (event.agent !== "codex" && event.agent !== "claude") ||
-      !["session-start", "session-end", "prompt", "tool-finished", "turn-stop"].includes(
-        event.type ?? "",
-      ) ||
+      !AGENT_EVENT_TYPES.includes(event.type as AgentEventType) ||
       typeof event.at !== "string"
     ) {
       return undefined;
     }
-    return event as AgentEvent;
+    const member = typeof event.member === "string" && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(event.member)
+      ? event.member
+      : undefined;
+    return { ...event, member } as AgentEvent;
   }
 }

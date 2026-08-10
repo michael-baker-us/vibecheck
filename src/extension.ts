@@ -146,6 +146,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (snapshot.kind !== "ready") return;
     try {
       const roster = await teamService.load(snapshot.state.repositoryRoot);
+      controller.setRosterIds(roster?.members.map((member) => member.id) ?? []);
       team = roster
         ? { kind: "ready", status: await teamService.status(snapshot.state.repositoryRoot, roster) }
         : { kind: "absent" };
@@ -1625,7 +1626,10 @@ async function applyTeam(
   if (!context) return;
   try {
     const preview = await service.preview(context.repositoryRoot, context.roster);
-    const orphans = await service.orphans(context.repositoryRoot, context.roster);
+    const orphans = [
+      ...await service.orphans(context.repositoryRoot, context.roster),
+      ...await service.legacyBodies(context.repositoryRoot, context.roster),
+    ];
     const changed = preview.files.filter((file) => file.status !== "unchanged");
     if (!changed.length && !orphans.length) {
       void vscode.window.showInformationMessage("Provider files already match the team roster.");
@@ -1633,7 +1637,7 @@ async function applyTeam(
     }
     const replaced = changed.filter((file) => file.status === "updated").length + orphans.length;
     const confirmation = await vscode.window.showWarningMessage(
-      `Write ${changed.length} file(s)${orphans.length ? ` and remove ${orphans.length} withdrawn subagent file(s)` : ""}?`
+      `Write ${changed.length} file(s)${orphans.length ? ` and remove ${orphans.length} redundant file(s)` : ""}?`
       + (replaced ? " Replaced files are backed up outside the repository." : ""),
       { modal: true, detail: [...changed.map((file) => file.path), ...orphans].join("\n") },
       "Apply",
@@ -1707,13 +1711,14 @@ async function addTeamMember(
     tools,
     providers: ["claude", "codex"],
     enabled: true,
-    body: `You are ${name.trim()}, the ${title.trim().toLowerCase()} for this repository.\n\n## You own\n\n-\n\n## You do not\n\n-\n\n## Output\n\n-\n`,
   };
   try {
     await service.add(context.repositoryRoot, context.roster, member);
     await refreshTeam();
     controlCenter.refresh();
-    await openWorkspaceFile(controller, service.bodyPath(member.id));
+    void vscode.window.showInformationMessage(
+      `Added ${member.name}. Apply the roster to create ${service.bodyPath(member.id)}, then write the role prompt there.`,
+    );
   } catch (error) {
     void vscode.window.showErrorMessage(errorMessage(error));
   }
@@ -1759,7 +1764,7 @@ async function deleteTeamMember(
     `Remove ${member.name} from the team?`,
     {
       modal: true,
-      detail: `Deletes ${TEAM_ROSTER_PATH} entry and ${service.bodyPath(memberId)}. Apply the roster afterwards to remove the compiled subagent file.`,
+      detail: `Removes the ${TEAM_ROSTER_PATH} entry. Apply the roster afterwards to delete ${service.bodyPath(memberId)}, which holds the role prompt.`,
     },
     "Remove",
   );

@@ -10,13 +10,14 @@ const {
   compileRoster,
   compileTeamBlock,
   enabledMembers,
+  extractBody,
   memberFingerprint,
   parseTeamWatermark,
   readTeamBlock,
   rosterMembers,
 } = require("../dist/team/team-compiler");
 const { isAllowedWorkspacePath } = require("../dist/agent-instructions/refresh-service");
-const { DEFAULT_TEAM } = require("../dist/team/default-team");
+const { DEFAULT_BODIES, DEFAULT_TEAM } = require("../dist/team/default-team");
 
 const member = (overrides = {}) => ({
   id: "cody",
@@ -27,7 +28,6 @@ const member = (overrides = {}) => ({
   tools: "editing",
   providers: ["claude", "codex"],
   enabled: true,
-  body: "You are Cody.",
   ...overrides,
 });
 
@@ -38,7 +38,7 @@ const roster = (members, policy = {}) => ({
 });
 
 test("compiles a member into a native Claude subagent with generated frontmatter", () => {
-  const content = compileClaudeAgent(member());
+  const content = compileClaudeAgent(member(), undefined, "You are Cody.");
   assert.match(content, /^---\nname: cody\n/);
   assert.match(content, /description: "Use to implement a defined change\."/);
   assert.match(content, /model: haiku\n/);
@@ -73,17 +73,48 @@ test("compilation is deterministic for an unchanged roster", () => {
   assert.deepEqual(first, second);
 });
 
-test("watermarks each compiled agent with the roster content it came from", () => {
+test("watermarks each compiled agent with the roster fields it came from", () => {
   const content = compileClaudeAgent(member());
   const watermark = parseTeamWatermark(content);
   assert.equal(watermark.id, "cody");
   assert.equal(watermark.hash, memberFingerprint(member()));
 
-  // Only fields that reach the compiled output participate, so cosmetic roster edits do not
-  // report every member as drifted.
+  // Only generated frontmatter participates. The body is authored in place, so editing it must
+  // never be reported as drift.
   assert.equal(memberFingerprint(member({ name: "Codey" })), watermark.hash);
-  assert.notEqual(memberFingerprint(member({ body: "Different." })), watermark.hash);
   assert.notEqual(memberFingerprint(member({ tier: "deep" })), watermark.hash);
+  assert.notEqual(memberFingerprint(member({ tools: "read-only" })), watermark.hash);
+});
+
+// The role prompt is authored in the subagent file and stored nowhere else, so a roster edit must
+// rewrite the frontmatter and carry the body through untouched.
+test("preserves the authored body when regenerating frontmatter", () => {
+  const authored = "You are Cody.\n\n## House rules\n\n- Never touch the vendored directory.";
+  const first = compileClaudeAgent(member(), undefined, authored);
+  const regenerated = compileClaudeAgent(member({ tier: "deep" }), first);
+
+  assert.match(regenerated, /model: opus/);
+  assert.ok(regenerated.includes("- Never touch the vendored directory."));
+  assert.equal(extractBody(regenerated), authored);
+  // Recompiling an unchanged member is byte-stable, so apply stays a no-op.
+  assert.equal(compileClaudeAgent(member(), first, authored), first);
+});
+
+test("extracts the body from hand-written and generated subagent files alike", () => {
+  assert.equal(extractBody("---\nname: x\n---\n\nBody text.\n"), "Body text.");
+  assert.equal(extractBody("Body only, no frontmatter.\n"), "Body only, no frontmatter.");
+  assert.equal(
+    extractBody("---\nname: x\n---\n<!-- vibecheck-team: id=x; hash=0123456789abcdef -->\n\nBody.\n"),
+    "Body.",
+  );
+});
+
+// Adopting an existing hand-written subagent into the roster must not discard its instructions.
+test("keeps a hand-written subagent body when the member joins the roster", () => {
+  const handWritten = "---\nname: cody\ndescription: mine\n---\n\nMy own careful instructions.\n";
+  const compiled = compileClaudeAgent(member(), handWritten);
+  assert.equal(extractBody(compiled), "My own careful instructions.");
+  assert.match(compiled, /description: "Use to implement a defined change\."/);
 });
 
 test("generated agent paths satisfy the Agent Workspace allowlist", () => {
@@ -151,7 +182,7 @@ test("the seeded team compiles cleanly and keeps delegation-quality descriptions
   assert.equal(DEFAULT_TEAM.members.length, 6);
   for (const item of DEFAULT_TEAM.members) {
     assert.ok(item.description.length > 60, `${item.id} needs a description that guides delegation`);
-    assert.ok(item.body.includes(item.name), `${item.id} body should name the member`);
+    assert.ok(DEFAULT_BODIES[item.id].includes(item.name), `${item.id} body should name the member`);
   }
   // Cody is the member that runs most often on the most constrained task, so it must stay cheapest.
   assert.equal(DEFAULT_TEAM.members.find((item) => item.id === "cody").tier, "fast");
