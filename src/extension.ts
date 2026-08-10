@@ -41,6 +41,18 @@ import { ControlCenterProvider } from "./ui/control-center";
 import { VibeCheckStatusBar } from "./ui/status-bar";
 import { INSTRUCTION_PREVIEW_SCHEME, InstructionPreviewProvider } from "./ui/instruction-preview-provider";
 import { ProviderUsageService } from "./usage/provider-usage-service";
+import { TeamService } from "./team/team-service";
+import { TEAM_ROSTER_PATH } from "./team/team-loader";
+import {
+  TEAM_MEMBER_ID_PATTERN,
+  TEAM_TIERS,
+  TEAM_TOOL_PROFILES,
+  TeamMember,
+  TeamRoster,
+  TeamSnapshot,
+  TeamTier,
+  TeamToolProfile,
+} from "./domain/team";
 import { VerificationService } from "./verification/verification-service";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -66,6 +78,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let instructionRefreshProposal: InstructionRefreshProposal | undefined;
   let providerUsage = usageService.emptySnapshot();
   let agentAlignment = alignmentService.emptySnapshot();
+  const teamService = new TeamService();
+  let team: TeamSnapshot = { kind: "absent" };
   const adapters = new AdapterInstaller(context.asAbsolutePath("resources/hook-bridge.cjs"));
   const statusBar = new VibeCheckStatusBar();
   const diagnostics = new FindingDiagnostics();
@@ -101,6 +115,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => instructionRefreshSession,
     () => providerUsage,
     () => agentAlignment,
+    () => team,
     extensionVersion(context),
   );
   controller = new ObservationController(
@@ -122,10 +137,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     output,
   );
+  /**
+   * Re-reads the roster from disk. A malformed roster is surfaced in the Team panel rather than
+   * thrown, so an unparseable `team.yaml` never takes the rest of the Control Center down.
+   */
+  const refreshTeam = async (): Promise<void> => {
+    const snapshot = controller.getSnapshot();
+    if (snapshot.kind !== "ready") return;
+    try {
+      const roster = await teamService.load(snapshot.state.repositoryRoot);
+      team = roster
+        ? { kind: "ready", status: await teamService.status(snapshot.state.repositoryRoot, roster) }
+        : { kind: "absent" };
+    } catch (error) {
+      team = { kind: "error", reason: error instanceof Error ? error.message : String(error) };
+    }
+  };
   refreshAgentAlignment = async () => {
     const snapshot = controller.getSnapshot();
     if (snapshot.kind !== "ready") return;
     agentAlignment = await alignmentService.scan(snapshot.state.repositoryRoot, snapshot.state.activePlan?.path);
+    await refreshTeam();
     controlCenter.refresh();
   };
   const eventReader = new LocalEventReader(
@@ -314,6 +346,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("vibecheck.alignAgentInstructions", () =>
       alignAgentWorkspace(controller, alignmentService, refreshAgentAlignment, true),
     ),
+    vscode.commands.registerCommand("vibecheck.installDefaultTeam", () =>
+      installDefaultTeam(controller, teamService, refreshTeam, controlCenter)),
+    vscode.commands.registerCommand("vibecheck.previewTeam", () =>
+      previewTeam(controller, teamService, instructionPreviewProvider)),
+    vscode.commands.registerCommand("vibecheck.applyTeam", () =>
+      applyTeam(
+        controller,
+        teamService,
+        path.join(context.globalStorageUri.fsPath, "team-backups"),
+        refreshTeam,
+        controlCenter,
+        output,
+      )),
+    vscode.commands.registerCommand("vibecheck.addTeamMember", () =>
+      addTeamMember(controller, teamService, refreshTeam, controlCenter)),
+    vscode.commands.registerCommand("vibecheck.openTeamRoster", () =>
+      openWorkspaceFile(controller, TEAM_ROSTER_PATH)),
+    vscode.commands.registerCommand("vibecheck.openTeamMember", (memberId?: unknown) => {
+      if (typeof memberId !== "string") return Promise.resolve();
+      return openWorkspaceFile(controller, teamService.bodyPath(memberId));
+    }),
+    vscode.commands.registerCommand("vibecheck.toggleTeamMember", (memberId?: unknown) =>
+      toggleTeamMember(controller, teamService, memberId, refreshTeam, controlCenter)),
+    vscode.commands.registerCommand("vibecheck.deleteTeamMember", (memberId?: unknown) =>
+      deleteTeamMember(controller, teamService, memberId, refreshTeam, controlCenter)),
     vscode.commands.registerCommand("vibecheck.resolveAgentAlignment", async (selection?: string) => {
       const match = /^skills:([^|]+)\|(codex|claude)$/.exec(selection ?? "");
       if (!match) return;
@@ -1456,6 +1513,263 @@ async function applyAgentInstructionRefresh(
     const message = error instanceof Error ? error.message : String(error);
     onSessionChanged({ ...session, status: "failed", finishedAt: new Date().toISOString(), error: message }, proposal);
     void vscode.window.showErrorMessage(`Could not apply Agent Workspace updates: ${message}`);
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The roster is the source of truth on disk, so every team command re-reads it rather than trusting
+ * a cached copy: the user may have edited `team.yaml` in the editor since the panel last rendered.
+ */
+async function requireRoster(
+  controller: ObservationController,
+  service: TeamService,
+): Promise<{ repositoryRoot: string; roster: TeamRoster } | undefined> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready") return undefined;
+  const repositoryRoot = snapshot.state.repositoryRoot;
+  try {
+    const roster = await service.load(repositoryRoot);
+    if (!roster) {
+      void vscode.window.showWarningMessage("No VibeCheck team is configured. Create the default team first.");
+      return undefined;
+    }
+    return { repositoryRoot, roster };
+  } catch (error) {
+    void vscode.window.showErrorMessage(`Team roster could not be loaded: ${errorMessage(error)}`);
+    return undefined;
+  }
+}
+
+async function openWorkspaceFile(controller: ObservationController, relativePath: string): Promise<void> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready") return;
+  const target = vscode.Uri.file(path.join(snapshot.state.repositoryRoot, relativePath));
+  try {
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(target), { preview: false });
+  } catch {
+    void vscode.window.showWarningMessage(`${relativePath} does not exist yet.`);
+  }
+}
+
+async function installDefaultTeam(
+  controller: ObservationController,
+  service: TeamService,
+  refreshTeam: () => Promise<void>,
+  controlCenter: ControlCenterProvider,
+): Promise<void> {
+  const snapshot = controller.getSnapshot();
+  if (snapshot.kind !== "ready") return;
+  try {
+    const roster = await service.seed(snapshot.state.repositoryRoot);
+    await refreshTeam();
+    controlCenter.refresh();
+    void vscode.window.showInformationMessage(
+      `Created ${roster.members.length} team members in ${TEAM_ROSTER_PATH}. Review them, then apply to write provider files.`,
+    );
+  } catch (error) {
+    void vscode.window.showErrorMessage(errorMessage(error));
+  }
+}
+
+async function previewTeam(
+  controller: ObservationController,
+  service: TeamService,
+  previewProvider: InstructionPreviewProvider,
+): Promise<void> {
+  const context = await requireRoster(controller, service);
+  if (!context) return;
+  try {
+    const preview = await service.preview(context.repositoryRoot, context.roster);
+    const changed = preview.files.filter((file) => file.status !== "unchanged");
+    if (!changed.length) {
+      void vscode.window.showInformationMessage("Provider files already match the team roster.");
+      return;
+    }
+    previewProvider.setProposal({
+      summary: "VibeCheck team roster",
+      files: changed.map((file) => ({
+        path: file.path as InstructionFilePath,
+        status: file.status === "updated" ? "modified" : "created",
+        rationale: "Compiled from .vibecheck/team.yaml.",
+        ...(file.originalContent === undefined ? {} : { originalContent: file.originalContent }),
+        proposedContent: file.proposedContent,
+      })),
+    });
+    for (const file of changed) {
+      await vscode.commands.executeCommand(
+        "vscode.diff",
+        previewProvider.uri("original", file.path as InstructionFilePath),
+        previewProvider.uri("proposed", file.path as InstructionFilePath),
+        `${file.path} — Current ↔ Proposed`,
+        { preview: false },
+      );
+    }
+  } catch (error) {
+    void vscode.window.showErrorMessage(errorMessage(error));
+  }
+}
+
+async function applyTeam(
+  controller: ObservationController,
+  service: TeamService,
+  backupRoot: string,
+  refreshTeam: () => Promise<void>,
+  controlCenter: ControlCenterProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const context = await requireRoster(controller, service);
+  if (!context) return;
+  try {
+    const preview = await service.preview(context.repositoryRoot, context.roster);
+    const orphans = await service.orphans(context.repositoryRoot, context.roster);
+    const changed = preview.files.filter((file) => file.status !== "unchanged");
+    if (!changed.length && !orphans.length) {
+      void vscode.window.showInformationMessage("Provider files already match the team roster.");
+      return;
+    }
+    const replaced = changed.filter((file) => file.status === "updated").length + orphans.length;
+    const confirmation = await vscode.window.showWarningMessage(
+      `Write ${changed.length} file(s)${orphans.length ? ` and remove ${orphans.length} withdrawn subagent file(s)` : ""}?`
+      + (replaced ? " Replaced files are backed up outside the repository." : ""),
+      { modal: true, detail: [...changed.map((file) => file.path), ...orphans].join("\n") },
+      "Apply",
+    );
+    if (confirmation !== "Apply") return;
+
+    const result = await service.apply(context.repositoryRoot, preview, backupRoot, orphans);
+    await refreshTeam();
+    controlCenter.refresh();
+    output.appendLine(`Team applied: ${result.changedFiles.join(", ")}`);
+    void vscode.window.showInformationMessage(
+      `Updated ${result.changedFiles.length} file(s).`
+      + (result.backupDirectory ? ` Backups: ${result.backupDirectory}` : ""),
+    );
+  } catch (error) {
+    void vscode.window.showErrorMessage(errorMessage(error));
+  }
+}
+
+async function addTeamMember(
+  controller: ObservationController,
+  service: TeamService,
+  refreshTeam: () => Promise<void>,
+  controlCenter: ControlCenterProvider,
+): Promise<void> {
+  const context = await requireRoster(controller, service);
+  if (!context) return;
+  const id = await vscode.window.showInputBox({
+    title: "New team member",
+    prompt: "Identifier, used as the subagent file name",
+    placeHolder: "release-manager",
+    validateInput: (value) => {
+      const candidate = value.trim();
+      if (!TEAM_MEMBER_ID_PATTERN.test(candidate)) {
+        return "Use lowercase letters, digits, dots, dashes, or underscores.";
+      }
+      return context.roster.members.some((member) => member.id === candidate)
+        ? `A member with id "${candidate}" already exists.`
+        : undefined;
+    },
+  });
+  if (!id) return;
+  const name = await vscode.window.showInputBox({ title: "New team member", prompt: "Display name", value: id });
+  if (!name) return;
+  const title = await vscode.window.showInputBox({ title: "New team member", prompt: "Role title", placeHolder: "Release Manager" });
+  if (!title) return;
+  const description = await vscode.window.showInputBox({
+    title: "New team member",
+    prompt: "When should a session delegate to this member? This is what decides whether it is ever used.",
+    placeHolder: "Use to prepare a release: changelog, version bump, and tag.",
+    validateInput: (value) => (value.trim().length < 40 ? "Give at least a sentence; vague descriptions are never delegated to." : undefined),
+  });
+  if (!description) return;
+  const tier = await vscode.window.showQuickPick(
+    [...TEAM_TIERS],
+    { title: "Model tier", placeHolder: "Capability tier for this role" },
+  ) as TeamTier | undefined;
+  if (!tier) return;
+  const tools = await vscode.window.showQuickPick(
+    [...TEAM_TOOL_PROFILES],
+    { title: "Tool profile", placeHolder: "What this member is permitted to do" },
+  ) as TeamToolProfile | undefined;
+  if (!tools) return;
+
+  const member: TeamMember = {
+    id: id.trim(),
+    name: name.trim(),
+    title: title.trim(),
+    description: description.trim(),
+    tier,
+    tools,
+    providers: ["claude", "codex"],
+    enabled: true,
+    body: `You are ${name.trim()}, the ${title.trim().toLowerCase()} for this repository.\n\n## You own\n\n-\n\n## You do not\n\n-\n\n## Output\n\n-\n`,
+  };
+  try {
+    await service.add(context.repositoryRoot, context.roster, member);
+    await refreshTeam();
+    controlCenter.refresh();
+    await openWorkspaceFile(controller, service.bodyPath(member.id));
+  } catch (error) {
+    void vscode.window.showErrorMessage(errorMessage(error));
+  }
+}
+
+async function toggleTeamMember(
+  controller: ObservationController,
+  service: TeamService,
+  memberId: unknown,
+  refreshTeam: () => Promise<void>,
+  controlCenter: ControlCenterProvider,
+): Promise<void> {
+  if (typeof memberId !== "string") return;
+  const context = await requireRoster(controller, service);
+  if (!context) return;
+  const member = context.roster.members.find((candidate) => candidate.id === memberId);
+  if (!member) return;
+  try {
+    await service.setEnabled(context.repositoryRoot, context.roster, memberId, !member.enabled);
+    await refreshTeam();
+    controlCenter.refresh();
+    void vscode.window.showInformationMessage(
+      `${member.name} ${member.enabled ? "disabled" : "enabled"}. Apply the roster to update provider files.`,
+    );
+  } catch (error) {
+    void vscode.window.showErrorMessage(errorMessage(error));
+  }
+}
+
+async function deleteTeamMember(
+  controller: ObservationController,
+  service: TeamService,
+  memberId: unknown,
+  refreshTeam: () => Promise<void>,
+  controlCenter: ControlCenterProvider,
+): Promise<void> {
+  if (typeof memberId !== "string") return;
+  const context = await requireRoster(controller, service);
+  if (!context) return;
+  const member = context.roster.members.find((candidate) => candidate.id === memberId);
+  if (!member) return;
+  const confirmation = await vscode.window.showWarningMessage(
+    `Remove ${member.name} from the team?`,
+    {
+      modal: true,
+      detail: `Deletes ${TEAM_ROSTER_PATH} entry and ${service.bodyPath(memberId)}. Apply the roster afterwards to remove the compiled subagent file.`,
+    },
+    "Remove",
+  );
+  if (confirmation !== "Remove") return;
+  try {
+    await service.remove(context.repositoryRoot, context.roster, memberId);
+    await refreshTeam();
+    controlCenter.refresh();
+  } catch (error) {
+    void vscode.window.showErrorMessage(errorMessage(error));
   }
 }
 

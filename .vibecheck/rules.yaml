@@ -4,6 +4,7 @@ boundaries:
     cannot_import:
       - src/collectors/**
       - src/config/**
+      - src/team/**
       - src/verification/**
 
   - name: domain-remains-independent
@@ -13,5 +14,11 @@ boundaries:
       - src/analyzers/**
       - src/collectors/**
       - src/config/**
+      - src/team/**
       - src/ui/**
       - src/verification/**
+
+  - name: team-stays-out-of-presentation
+    from: src/team/**
+    cannot_import:
+      - src/ui/**

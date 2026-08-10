@@ -27,7 +27,7 @@ export function controlCenterHtml(cspSource: string): string {
     button:disabled { cursor: default; opacity:.62; }
     button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:2px; }
     .shell { display: grid; gap: 11px; max-width: 900px; margin: 0 auto; padding:12px; }
-    .nav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px; padding:3px; border:1px solid var(--panel-border); border-radius:8px; background:var(--panel-surface); position:sticky; top:0; z-index:5; box-shadow:0 5px 14px color-mix(in srgb,var(--panel-background) 72%,transparent); }
+    .nav { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:3px; padding:3px; border:1px solid var(--panel-border); border-radius:8px; background:var(--panel-surface); position:sticky; top:0; z-index:5; box-shadow:0 5px 14px color-mix(in srgb,var(--panel-background) 72%,transparent); }
     .nav-btn { min-width:0; min-height:32px; padding:6px 4px; border:1px solid transparent; border-radius:5px; color:var(--panel-muted); background:transparent; font-size:11px; overflow:hidden; text-overflow:ellipsis; }
     .nav-btn:hover { color:var(--vscode-foreground); background:var(--vscode-list-hoverBackground); }
     .nav-btn[aria-current="page"] { color:var(--vscode-button-foreground); background:var(--vscode-button-background); font-weight:650; }
@@ -147,6 +147,8 @@ export function controlCenterHtml(cspSource: string): string {
     .action-drawer .actions { margin:0; padding:0 9px 9px; }
     @media (max-width: 360px) {
       .shell { gap:9px; padding:8px; }
+      /* Five labels ellipsize to nothing in a narrow sidebar; wrap onto two rows instead. */
+      .nav { grid-template-columns:repeat(3,minmax(0,1fr)); }
       .hero, .content { padding:10px; }
       .section-head { padding:9px 10px; }
       .actions, .metrics, .next-action { grid-template-columns:1fr; }
@@ -238,8 +240,8 @@ export function controlCenterHtml(cspSource: string): string {
       metric('Security',securityGate?String(securityGate.summary.total):'—',securityGate?securityGate.summary.newIssues+' new · '+securityGate.summary.fixedIssues+' fixed':noMetrics('security'),securityGate&&securityGate.status==='passed'&&securityGate.summary.total?'incomplete':gateTone(securityGate))
     ); metrics.append(...otherGateTiles()); if(includeChanges)metrics.append(metric('Changed files',String(s.changedFiles.length),s.headBranch||'detached HEAD','neutral')); return metrics; };
 
-    const pages={status:el('section','page'),quality:el('section','page'),review:el('section','page'),settings:el('section','page')};
-    const nav=el('nav','nav'), navItems=[['status','Status'+(open.length?' · '+open.length:'')],['quality','Quality'],['review','Review'],['settings','Settings']];
+    const pages={status:el('section','page'),quality:el('section','page'),review:el('section','page'),team:el('section','page'),settings:el('section','page')};
+    const nav=el('nav','nav'), navItems=[['status','Status'+(open.length?' · '+open.length:'')],['quality','Quality'],['review','Review'],['team','Team'],['settings','Settings']];
     nav.setAttribute('aria-label','VibeCheck sections');
     const savedView=(vscode.getState()||{}).activeView, migratedView={overview:'status',attention:'status',tools:'settings',summarize:'review',usage:'settings',workspace:'settings'}[savedView]||savedView, initialView=pages[migratedView]?migratedView:'status';
     const showView=view=>{ Object.entries(pages).forEach(([key,page])=>page.hidden=key!==view); nav.querySelectorAll('.nav-btn').forEach(item=>{ if(item.dataset.view===view)item.setAttribute('aria-current','page'); else item.removeAttribute('aria-current'); }); vscode.setState({...vscode.getState(),activeView:view}); };
@@ -395,6 +397,36 @@ export function controlCenterHtml(cspSource: string): string {
     owners.forEach(([owner,label],index)=>{ const tab=el('button','tab',label); tab.type='button'; tab.dataset.owner=owner; tab.dataset.focusKey='agent-tab:'+owner; tab.id='agent-tab-'+owner; tab.setAttribute('role','tab'); tab.setAttribute('aria-controls','agent-file-panel'); tab.onclick=()=>showOwner(owner); tab.onkeydown=event=>{ if(event.key!=='ArrowLeft'&&event.key!=='ArrowRight') return; event.preventDefault(); const offset=event.key==='ArrowRight'?1:-1, next=owners[(index+offset+owners.length)%owners.length][0]; showOwner(next); tabs.querySelector('[data-owner="'+next+'"]').focus(); }; tabs.append(tab); });
     panel.id='agent-file-panel'; panel.setAttribute('aria-labelledby','agent-tab-'+initialOwner); agents.card.append(tabs,panel); showOwner(initialOwner);
     const adapter=el('div','item'); adapter.append(el('div','item-title','Local agent event adapters'),el('div','meta',s.agent.connectedAgents.length?s.agent.connectedAgents.join(', ')+' connected':'Optional lifecycle context; repository monitoring works without adapters.')); const aa=el('div','item-actions'); aa.append(button('Connect Codex','install-codex'),button('Connect Claude','install-claude'),button('Remove adapter','remove-adapter',undefined,'ghost')); adapter.append(aa); const agentFooter=el('div','content'); agentFooter.append(adapter); agents.card.append(agentFooter); pages.settings.append(agents.card);
+
+    const team=data.team,teamReady=team&&team.kind==='ready';
+    const roster=section('Roster',teamReady?team.status.members.filter(m=>m.member.enabled).length+' enabled':team&&team.kind==='error'?'error':'not configured','team:roster',true);
+    pages.team.append(el('div','eyebrow','Engineering team'),el('div','section-intro','A persistent team defined once in .vibecheck/team.yaml and compiled into native Claude subagents plus a managed Team block in AGENTS.md. Delegation happens in your own Claude Code and Codex sessions — VibeCheck maintains the roster and never launches these agents.'));
+    if(!team||team.kind==='absent'){
+      const seed=el('div','callout'); seed.append(el('strong','','No team configured'),el('p','','Seed Pam, Scout, Archy, Cody, Tristan, and Renee with editable role prompts. Nothing is written to .claude/ or AGENTS.md until you review and apply.'));
+      const seedActions=el('div','item-actions'); seedActions.append(button('Create default team','install-default-team',undefined,'primary')); seed.append(seedActions); roster.content.append(seed);
+    } else if(team.kind==='error'){
+      const bad=el('div','callout danger'); bad.append(el('strong','','Team roster could not be loaded'),el('p','',team.reason));
+      const badActions=el('div','item-actions'); badActions.append(button('Open team.yaml','open-team-roster',undefined,'secondary')); bad.append(badActions); roster.content.append(bad);
+    } else {
+      const st=team.status,drifted=st.members.filter(m=>m.files.some(f=>f.state!=='in-sync')).length+(st.instructions.state==='in-sync'?0:1);
+      const status=el('div','callout'),statusHead=el('div','item-head');
+      statusHead.append(el('strong','','Provider files'),el('span','badge '+(drifted?'incomplete':'ready'),drifted?drifted+' pending':'in sync'));
+      status.append(statusHead,el('div','meta',st.policy.provider+' · '+st.policy.profile+' profile · AGENTS.md block '+st.instructions.state));
+      const rosterActions=el('div','item-actions');
+      rosterActions.append(button('Preview changes','preview-team',undefined,'secondary'),button(drifted?'Apply to providers':'Re-apply','apply-team',undefined,drifted?'primary':'ghost'),button('Add member','add-team-member',undefined,'ghost'),button('Open team.yaml','open-team-roster',undefined,'ghost'));
+      status.append(rosterActions); roster.content.append(status);
+      if(!st.members.length) roster.content.append(el('div','empty','The roster has no members.'));
+      st.members.forEach(entry=>{
+        const m=entry.member,file=entry.files[0],item=el('div','item'),head=el('div','item-head');
+        const state=!m.enabled?'disabled':file?file.state:'not compiled',tone=!m.enabled?'neutral':state==='in-sync'?'ready':state==='modified'?'incomplete':'neutral';
+        head.append(el('span','item-title',m.name+' · '+m.title),el('span','badge '+tone,state));
+        item.append(head,el('p','',m.description),el('div','meta',m.tier+' model · '+m.tools+' · '+m.providers.join(', ')+(file?' · '+file.path:'')));
+        const acts=el('div','item-actions');
+        acts.append(button('Open role','open-team-member',m.id,'ghost'),button(m.enabled?'Disable':'Enable','toggle-team-member',m.id,'ghost'),button('Remove','delete-team-member',m.id,'ghost danger'));
+        item.append(acts); roster.content.append(item);
+      });
+    }
+    pages.team.append(roster.card);
 
     const evidence=section('Evidence & reporting','local','status:reporting',false);
     const summary=el('div','callout'); summary.append(el('strong','', 'Current evidence snapshot'),el('p','',(s.headSubject?s.headSubject+' · ':'')+s.verification.filter(v=>v.status==='passed').length+' checks passed · '+open.length+' findings open · updated '+new Date(s.lastUpdatedAt).toLocaleTimeString())); evidence.content.append(summary); const ea=el('div','actions'); ea.append(button('Create Markdown report','export'),button('Copy agent follow-up','copy-prompt'),button('View check report','check-output-menu',undefined,'ghost'),button('Open quality config','config',undefined,'ghost')); evidence.content.append(ea); pages.status.append(evidence.card);

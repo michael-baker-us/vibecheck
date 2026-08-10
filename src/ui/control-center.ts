@@ -8,6 +8,7 @@ import { ReadmeMaintenanceSession } from "../domain/readme-maintenance";
 import { AgentAlignmentSnapshot } from "../agent-instructions/alignment-service";
 import { categoryFor, calculateReadiness, missingRecommendedCategories } from "../domain/quality-gates";
 import { ObservationSnapshot } from "../domain/observation-state";
+import { TeamSnapshot } from "../domain/team";
 import { ProviderUsageSnapshot } from "../usage/provider-usage-service";
 import { DEFAULT_MODEL_ROUTING, MODEL_ROUTING_SETTINGS, normalizeModelRouting } from "../providers/model-routing";
 import { controlCenterHtml } from "./control-center-view";
@@ -28,6 +29,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     private readonly getInstructionRefreshSession: () => InstructionRefreshSession | undefined,
     private readonly getProviderUsage: () => ProviderUsageSnapshot,
     private readonly getAgentAlignment: () => AgentAlignmentSnapshot,
+    private readonly getTeam: () => TeamSnapshot,
     private readonly version: string = "unknown",
   ) {}
 
@@ -71,6 +73,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           instructionRefreshSession: this.getInstructionRefreshSession(),
           providerUsage: this.getProviderUsage(),
           agentAlignment: this.getAgentAlignment(),
+          team: this.getTeam(),
           recommendations: configuration.recommendations,
           modelRouting: readModelRouting(),
           version: this.version,
@@ -134,6 +137,11 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       "discard-agent-instructions": "vibecheck.discardAgentInstructionRefresh",
       "align-agent-instructions": "vibecheck.alignAgentInstructions",
       "clear-agent-workspace": "vibecheck.clearAgentWorkspace",
+      "install-default-team": "vibecheck.installDefaultTeam",
+      "preview-team": "vibecheck.previewTeam",
+      "apply-team": "vibecheck.applyTeam",
+      "add-team-member": "vibecheck.addTeamMember",
+      "open-team-roster": "vibecheck.openTeamRoster",
       delete: "vibecheck.deleteData",
       start: "vibecheck.start",
     };
@@ -163,6 +171,16 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     }
     if (message.action === "inspect-review") {
       await vscode.commands.executeCommand("vibecheck.inspectCodeReviewFinding", id);
+      return;
+    }
+    const memberCommands: Record<string, string> = {
+      "open-team-member": "vibecheck.openTeamMember",
+      "toggle-team-member": "vibecheck.toggleTeamMember",
+      "delete-team-member": "vibecheck.deleteTeamMember",
+    };
+    const memberCommand = memberCommands[message.action];
+    if (memberCommand) {
+      await vscode.commands.executeCommand(memberCommand, id);
       return;
     }
     const finding = snapshot.state.findings.find((item) => item.id === id);

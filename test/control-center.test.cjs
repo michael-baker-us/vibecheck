@@ -11,7 +11,7 @@ test("ships a syntactically valid task-oriented Control Center", () => {
 
   assert.ok(script, "expected an embedded webview script");
   assert.doesNotThrow(() => new Function(script));
-  for (const view of ["Status", "Review", "Quality", "Settings"]) {
+  for (const view of ["Status", "Review", "Quality", "Team", "Settings"]) {
     assert.match(source, new RegExp(`'${view}'`));
   }
   assert.match(source, /Change confidence/);
@@ -48,7 +48,13 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /showView\('review'\)/);
   assert.match(source, /pages\.review\.append\(changeSummary\.card\)/);
   assert.match(source, /pages\.review\.append\(readme\.card\)/);
-  assert.match(source, /navItems=\[\['status'.*\['quality','Quality'\],\['review','Review'\],\['settings','Settings'\]\]/);
+  assert.match(source, /navItems=\[\['status'.*\['quality','Quality'\],\['review','Review'\],\['team','Team'\],\['settings','Settings'\]\]/);
+  // Five labels ellipsize to nothing in a narrow sidebar, so the nav must rewrap below 360px.
+  assert.match(source, /grid-template-columns:repeat\(5,minmax\(0,1fr\)\)/);
+  assert.match(source, /\.nav \{ grid-template-columns:repeat\(3,minmax\(0,1fr\)\); \}/);
+  assert.match(source, /pages\.team\.append\(roster\.card\)/);
+  // The Team panel must keep stating that VibeCheck maintains the roster but never runs the agents.
+  assert.match(source, /never launches these agents/);
   assert.match(source, /tools:'settings'/, "an existing saved Tools selection must migrate");
   assert.doesNotMatch(source, /pages\.tools\b/);
   assert.match(source, /section\('Change summary','Markdown','review:change-summary'/);
@@ -121,6 +127,8 @@ test("ships a syntactically valid task-oriented Control Center", () => {
     "set-agent-alignment", "resolve-agent-alignment", "clear-agent-workspace",
     "inspect-review", "inspect-finding", "accept-finding", "dismiss-finding",
     "reopen-finding", "prompt-finding", "run-check", "check-output",
+    "install-default-team", "preview-team", "apply-team", "add-team-member",
+    "open-team-roster", "open-team-member", "toggle-team-member", "delete-team-member",
   ]) {
     assert.match(source, new RegExp(`['"]${action}['"]`), `expected ${action} to remain reachable`);
   }
