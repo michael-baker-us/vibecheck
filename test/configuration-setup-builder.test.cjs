@@ -52,4 +52,6 @@ test("requires an explicit explanation when a recommended gate is left unconfigu
   assert.match(prompt, /A recommendation is inert/);
   assert.match(prompt, /never an install command, and never flags/);
   assert.match(prompt, /Never leave a recommended gate unaddressed/);
+  assert.match(prompt, /Pin every dependency to a range compatible/);
+  assert.match(prompt, /@vitest\/coverage-v8@\^3\.2\.0/);
 });

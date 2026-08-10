@@ -132,6 +132,12 @@ dependency and promotes \`gate\` into \`verification\`. List dependencies as pla
 \`packages\` — never an install command, and never flags. \`manager\` accepts:
 ${PACKAGE_MANAGER_IDS.join(", ")}.
 
+**Pin every dependency to a range compatible with what the repository already has.** A companion
+package listed without a version resolves to its newest release, which usually requires the newest
+major of the package it extends, and the install then fails peer resolution. Read the installed
+version from the manifest or lockfile first and match it: with \`vitest@^3.2.0\` in the manifest,
+write \`"@vitest/coverage-v8@^3.2.0"\`, not \`"@vitest/coverage-v8"\`.
+
 Never leave a recommended gate unaddressed: configure it, or record a recommendation explaining
 what it needs.
 

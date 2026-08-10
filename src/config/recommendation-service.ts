@@ -61,7 +61,7 @@ export class RecommendationService {
     const { manager, argv } = await this.plan(repositoryRoot, recommendation);
     const result = await this.runner(argv, repositoryRoot, signal);
     if (result.exitCode !== 0) {
-      throw new Error(`${manager.label} could not install ${recommendation.packages.join(", ")}. ${lastLine(result.output)}`);
+      throw new Error(`${manager.label} could not install ${recommendation.packages.join(", ")}. ${installFailure(result.output)}`);
     }
     await this.addGate(repositoryRoot, recommendation);
     return { installed: recommendation.packages, gateName: recommendation.gate.name, output: result.output };
@@ -141,6 +141,28 @@ function runInstall(argv: string[], cwd: string, signal?: AbortSignal): Promise<
   });
 }
 
-function lastLine(output: string): string {
-  return output.trim().split("\n").filter(Boolean).at(-1) ?? "";
+/** Lines that tell the user where a log lives rather than what went wrong. */
+const NOISE = /^(a complete log|for a full report|to address|run `|see |this is (an|a) |npm (warn|notice))/i;
+
+/**
+ * Extracts the part of a failed install that explains the failure.
+ *
+ * Package managers put a log-file path last, so taking the final line reports the location of the
+ * error instead of the error.
+ */
+export function installFailure(output: string): string {
+  const lines = output
+    .split("\n")
+    .map((line) => line.replace(/^(npm (error|ERR!)|error)\s*/i, "").trim())
+    .filter((line) => line.length > 0 && !NOISE.test(line));
+
+  const meaningful = lines.filter((line) => !/^\/|^[A-Za-z]:\\/.test(line));
+  const errors = meaningful.filter((line) => /(error|cannot|could not|unable|conflict|not found|E\d{3}|ERESOLVE)/i.test(line));
+  const chosen = (errors.length ? errors : meaningful).slice(0, 4);
+
+  const detail = [...new Set(chosen)].join(" · ");
+  const peerConflict = /ERESOLVE|peer dep|unable to resolve dependency tree/i.test(output)
+    ? " This is a peer-dependency conflict: the dependency needs to be pinned to a version compatible with what the repository already has."
+    : "";
+  return `${detail}${peerConflict}`.trim();
 }

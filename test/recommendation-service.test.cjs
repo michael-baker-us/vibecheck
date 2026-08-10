@@ -5,7 +5,7 @@ const { join } = require("node:path");
 const test = require("node:test");
 
 const { ConfigLoader } = require("../dist/config/config-loader");
-const { RecommendationService } = require("../dist/config/recommendation-service");
+const { RecommendationService, installFailure } = require("../dist/config/recommendation-service");
 const {
   PACKAGE_MANAGERS,
   detectPackageManager,
@@ -183,4 +183,48 @@ test("every registered manager installs without a shell and declares markers", (
     assert.deepEqual(argv.slice(-2), ["pkg-a", "pkg-b"], `${manager.id} must put packages last`);
     assert.ok(!argv.some((part) => /[;|&$`]/.test(part)), `${manager.id} must not build shell syntax`);
   }
+});
+
+test("reports why an install failed rather than where the log lives", () => {
+  const npmEresolve = [
+    "npm error code ERESOLVE",
+    "npm error ERESOLVE unable to resolve dependency tree",
+    "npm error",
+    "npm error While resolving: motherload@0.1.0",
+    "npm error Found: vitest@3.2.7",
+    "npm error Could not resolve dependency:",
+    "npm error peer vitest@\"4.1.10\" from @vitest/coverage-v8@4.1.10",
+    "npm error A complete log of this run can be found in: /Users/x/.npm/_logs/2026-debug-0.log",
+  ].join("\n");
+
+  const message = installFailure(npmEresolve);
+  assert.match(message, /unable to resolve dependency tree/);
+  assert.match(message, /peer-dependency conflict/);
+  assert.doesNotMatch(message, /_logs/, "the log path is not an explanation");
+  assert.doesNotMatch(message, /A complete log/);
+});
+
+test("falls back to the output itself when nothing looks like an error line", () => {
+  assert.match(installFailure("something went sideways"), /something went sideways/);
+  assert.equal(installFailure(""), "");
+});
+
+test("surfaces a registry 404 without the surrounding noise", () => {
+  const output = [
+    "npm error code E404",
+    "npm error 404 Not Found - GET https://registry.npmjs.org/@scope%2fmissing",
+    "npm error A complete log of this run can be found in: /Users/x/.npm/_logs/x.log",
+  ].join("\n");
+  const message = installFailure(output);
+  assert.match(message, /E404|404 Not Found/);
+  assert.doesNotMatch(message, /_logs/);
+});
+
+test("accepts a version-pinned dependency so peer resolution can succeed", () => {
+  assert.equal(isSafePackageToken("@vitest/coverage-v8@^3.2.0"), true);
+  const manager = PACKAGE_MANAGERS.find((entry) => entry.id === "npm");
+  assert.deepEqual(
+    manager.devInstall(["@vitest/coverage-v8@^3.2.0"]),
+    ["npm", "install", "--save-dev", "@vitest/coverage-v8@^3.2.0"],
+  );
 });
