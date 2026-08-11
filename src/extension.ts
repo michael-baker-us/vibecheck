@@ -3,7 +3,7 @@ import * as path from "node:path";
 
 import * as vscode from "vscode";
 
-import { AdapterInstaller, SupportedAgent } from "./adapters/adapter-installer";
+import { AdapterInstaller, AdapterInstallationStatus, SupportedAgent } from "./adapters/adapter-installer";
 import { LocalEventReader } from "./adapters/local-event-reader";
 import { AgentInstructionAlignmentService } from "./agent-instructions/alignment-service";
 import { InstructionRefreshService } from "./agent-instructions/refresh-service";
@@ -86,6 +86,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /** Live session detail. Memory only: never persisted, and gone when the window reloads. */
   let teamLive: TeamLiveSession[] = [];
   const adapters = new AdapterInstaller(context.asAbsolutePath("resources/hook-bridge.cjs"));
+  let adapterInstallation: AdapterInstallationStatus = { codex: false, claude: false };
   const statusBar = new VibeCheckStatusBar();
   const diagnostics = new FindingDiagnostics();
   let controller: ObservationController;
@@ -122,6 +123,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => agentAlignment,
     () => team,
     () => teamLive,
+    () => adapterInstallation,
     extensionVersion(context),
   );
   controller = new ObservationController(
@@ -490,13 +492,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.window.showInformationMessage("Saved Balanced and Deep model routes for Claude and Codex.");
     }),
     vscode.commands.registerCommand("vibecheck.installCodexAdapter", () =>
-      installAdapter(adapters, "codex"),
+      installAdapter(adapters, "codex", workspaceFolder, refreshAdapterInstallation),
     ),
     vscode.commands.registerCommand("vibecheck.installClaudeAdapter", () =>
-      installAdapter(adapters, "claude"),
+      installAdapter(adapters, "claude", workspaceFolder, refreshAdapterInstallation),
     ),
     vscode.commands.registerCommand("vibecheck.uninstallAgentAdapter", () =>
-      uninstallAdapter(adapters),
+      uninstallAdapter(adapters, refreshAdapterInstallation),
     ),
     vscode.commands.registerCommand("vibecheck.createReport", () => createEvidenceReport(controller)),
     vscode.commands.registerCommand("vibecheck.deleteData", () => deleteData(controller, adapters)),
@@ -530,6 +532,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
   await refreshAgentAlignment();
+  async function refreshAdapterInstallation(): Promise<void> {
+    try {
+      adapterInstallation = await adapters.installationStatus();
+    } catch (error) {
+      output.appendLine(`Agent adapter status read failed: ${String(error)}`);
+      adapterInstallation = { codex: false, claude: false };
+    }
+    controlCenter.refresh();
+  }
+  await refreshAdapterInstallation();
   await alignWhenEnabled();
   void vscode.commands.executeCommand("vibecheck.refreshProviderUsage");
   eventReader.start();
@@ -1823,27 +1835,46 @@ async function createEvidenceReport(controller: ObservationController): Promise<
   void vscode.window.showInformationMessage("Evidence report created locally. Save it only if you want a repository artifact.");
 }
 
-async function installAdapter(adapters: AdapterInstaller, agent: SupportedAgent): Promise<void> {
+async function installAdapter(
+  adapters: AdapterInstaller,
+  agent: SupportedAgent,
+  workspaceFolder: vscode.WorkspaceFolder,
+  refreshInstallation: () => Promise<void>,
+): Promise<void> {
   const configPath = adapters.configPath(agent);
   const choice = await vscode.window.showWarningMessage(
-    `Install the local VibeCheck ${agent} hook adapter? This will merge observer hooks into ${configPath}. Prompts and raw transcripts are not retained.`,
+    `Install the local VibeCheck ${agent} hook adapter? This will merge observer hooks into ${configPath}. Prompts and raw transcripts are not retained.${agent === "codex" ? " Codex will open in a terminal afterwards, where you must make the final hook trust decision." : ""}`,
     { modal: true },
     "Install Local Adapter",
   );
   if (choice !== "Install Local Adapter") return;
   try {
     await adapters.install(agent);
-    const suffix =
-      agent === "codex"
-        ? " Open /hooks in Codex to review and trust the new hook definitions."
-        : " Restart active Claude sessions so they load the hooks.";
-    void vscode.window.showInformationMessage(`VibeCheck ${agent} adapter installed.${suffix}`);
+    await refreshInstallation();
+    if (agent === "codex") {
+      const terminal = vscode.window.createTerminal({
+        name: "VibeCheck Codex Hook Review",
+        cwd: workspaceFolder.uri,
+      });
+      terminal.show();
+      terminal.sendText("codex");
+      void vscode.window.showInformationMessage(
+        "VibeCheck added the Codex hook definitions and opened Codex. Review the native Hooks need review screen and make the final trust selection there; VibeCheck will show the connection as active only after it observes a local Codex event.",
+      );
+    } else {
+      void vscode.window.showInformationMessage(
+        "VibeCheck added the Claude hook definitions. Restart active Claude sessions so they load the hooks; VibeCheck will show the connection as active after it observes a local Claude event.",
+      );
+    }
   } catch (error) {
     void vscode.window.showErrorMessage(`Could not install ${agent} adapter: ${String(error)}`);
   }
 }
 
-async function uninstallAdapter(adapters: AdapterInstaller): Promise<void> {
+async function uninstallAdapter(
+  adapters: AdapterInstaller,
+  refreshInstallation: () => Promise<void>,
+): Promise<void> {
   const agent = await vscode.window.showQuickPick(["codex", "claude"] as const, {
     title: "Remove a VibeCheck agent adapter",
   });
@@ -1857,6 +1888,7 @@ async function uninstallAdapter(adapters: AdapterInstaller): Promise<void> {
   if (choice !== "Remove Adapter") return;
   try {
     await adapters.uninstall(selectedAgent);
+    await refreshInstallation();
     void vscode.window.showInformationMessage(`VibeCheck ${selectedAgent} adapter removed.`);
   } catch (error) {
     void vscode.window.showErrorMessage(`Could not remove ${selectedAgent} adapter: ${String(error)}`);

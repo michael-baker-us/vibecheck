@@ -8,7 +8,7 @@ import { ReadmeMaintenanceSession } from "../domain/readme-maintenance";
 import { AgentAlignmentSnapshot } from "../agent-instructions/alignment-service";
 import { categoryFor, calculateReadiness, missingRecommendedCategories, readinessBadge } from "../domain/quality-gates";
 import { ObservationSnapshot } from "../domain/observation-state";
-import { TeamLiveSession, TeamSnapshot } from "../domain/team";
+import { adapterConnectionState, TeamLiveSession, TeamSnapshot } from "../domain/team";
 import { ProviderUsageSnapshot } from "../usage/provider-usage-service";
 import { DEFAULT_MODEL_ROUTING, MODEL_ROUTING_SETTINGS, normalizeModelRouting } from "../providers/model-routing";
 import { controlCenterHtml } from "./control-center-view";
@@ -31,6 +31,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     private readonly getAgentAlignment: () => AgentAlignmentSnapshot,
     private readonly getTeam: () => TeamSnapshot,
     private readonly getTeamLive: () => TeamLiveSession[],
+    private readonly getAdapterInstallation: () => Record<"codex" | "claude", boolean>,
     private readonly version: string = "unknown",
   ) {}
 
@@ -57,6 +58,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           reasons: [...baseReadiness.reasons, `Missing recommended gates: ${missingGates.join(", ")}`],
         }
       : baseReadiness;
+    const adapterInstallation = this.getAdapterInstallation();
     this.view.badge = readinessBadge(readiness);
     const payload = snapshot.kind === "ready"
       ? {
@@ -77,6 +79,11 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           agentAlignment: this.getAgentAlignment(),
           team: this.getTeam(),
           teamLive: this.getTeamLive(),
+          adapterInstallation,
+          adapterConnections: {
+            codex: adapterConnectionState(adapterInstallation.codex, snapshot.state.teamActivity.sessions, "codex"),
+            claude: adapterConnectionState(adapterInstallation.claude, snapshot.state.teamActivity.sessions, "claude"),
+          },
           recommendations: configuration.recommendations,
           modelRouting: readModelRouting(),
           version: this.version,

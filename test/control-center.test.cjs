@@ -4,6 +4,7 @@ const { join } = require("node:path");
 const test = require("node:test");
 
 const uiSource = (file) => readFileSync(join(__dirname, "..", "src", "ui", file), "utf8");
+const extensionSource = () => readFileSync(join(__dirname, "..", "src", "extension.ts"), "utf8");
 
 test("ships a syntactically valid task-oriented Control Center", () => {
   const source = `${uiSource("control-center.ts")}\n${uiSource("control-center-view.ts")}`;
@@ -37,6 +38,8 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /const gateOutcome = gate =>/);
   assert.match(source, /VibeCheck .\+\(data\.version\|\|.unknown.\)/);
   assert.match(source, /version: this\.version/);
+  assert.match(source, /const adapterInstallation = this\.getAdapterInstallation\(\)/);
+  assert.match(source, /adapterInstallation,/);
   assert.match(source, /summaryUnrecognized/);
   assert.match(source, /format: or report_path:/);
   assert.match(source, /Ran · format not recognised/);
@@ -61,6 +64,13 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /elapsed\(d\.startedAt,d\.finishedAt\)/, "completed delegation duration must stop at finish time");
   // The Team panel must keep stating that VibeCheck maintains the roster but never runs the agents.
   assert.match(source, /never launches these agents/);
+  assert.match(source, /installed · awaiting Codex approval/);
+  assert.match(source, /observed · active/);
+  assert.match(source, /observed · idle/);
+  assert.match(source, /adapterConnectionState\(adapterInstallation\.codex, snapshot\.state\.teamActivity\.sessions, "codex"\)/);
+  assert.match(source, /state\.kind==='active'\|\|state\.kind==='observed-idle'/);
+  assert.match(source, /not installed/);
+  assert.match(source, /Codex keeps the final hook trust decision in its native review screen/);
   assert.match(source, /tools:'settings'/, "an existing saved Tools selection must migrate");
   assert.doesNotMatch(source, /pages\.tools\b/);
   assert.match(source, /section\('Change summary','Markdown','review:change-summary'/);
@@ -173,4 +183,15 @@ test("mirrors the Status page readiness onto the view badge", () => {
 
   assert.match(source, /readinessBadge/);
   assert.match(source, /this\.view\.badge = readinessBadge\(readiness\)/);
+});
+
+test("opens Codex in the repository for its native hook trust decision", () => {
+  const source = extensionSource();
+
+  assert.match(source, /name: "VibeCheck Codex Hook Review"/);
+  assert.match(source, /cwd: workspaceFolder\.uri/);
+  assert.match(source, /terminal\.sendText\("codex"\)/);
+  assert.match(source, /must make the final hook trust decision/);
+  assert.match(source, /active only after it observes a local Codex event/);
+  assert.doesNotMatch(source, /Codex adapter installed/);
 });

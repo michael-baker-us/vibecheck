@@ -119,6 +119,21 @@ export type TeamActivity = {
   attributionCapable: boolean;
 };
 
+export type AdapterConnectionState = "active" | "observed-idle" | "awaiting" | "not-installed";
+
+/** Derives provider connection state from decaying lifecycle sessions, not sticky summary state. */
+export function adapterConnectionState(
+  installed: boolean,
+  sessions: readonly TeamSessionActivity[],
+  agent: TeamProvider,
+): AdapterConnectionState {
+  if (!installed) return "not-installed";
+  const providerSessions = sessions.filter((session) => session.agent === agent);
+  if (providerSessions.some((session) => session.status === "active")) return "active";
+  if (providerSessions.length > 0) return "observed-idle";
+  return "awaiting";
+}
+
 export const EMPTY_TEAM_ACTIVITY: TeamActivity = { sessions: [], attributionCapable: false };
 
 /**

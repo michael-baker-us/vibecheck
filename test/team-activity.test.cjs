@@ -9,6 +9,7 @@ const {
   emptyActivity,
   reconcileActivity,
 } = require("../dist/team/activity-tracker");
+const { adapterConnectionState } = require("../dist/domain/team");
 
 const ROSTER = new Set(["cody", "renee", "scout"]);
 const T0 = Date.parse("2026-08-10T12:00:00.000Z");
@@ -27,6 +28,20 @@ const event = (overrides = {}) => ({
 
 const fold = (events, now = T0) =>
   events.reduce((activity, item) => applyAgentEvent(activity, item, ROSTER, now), emptyActivity());
+
+test("derives adapter connection state from decaying provider session status", () => {
+  const active = { sessionId: "active", agent: "codex", status: "active", startedAt: at(0), lastEventAt: at(0), toolCount: 0 };
+  const idle = { ...active, sessionId: "idle", status: "idle" };
+  const ended = { ...active, sessionId: "ended", status: "ended" };
+  const claude = { ...active, sessionId: "claude", agent: "claude" };
+
+  assert.equal(adapterConnectionState(true, [active], "codex"), "active");
+  assert.equal(adapterConnectionState(true, [idle], "codex"), "observed-idle");
+  assert.equal(adapterConnectionState(true, [ended], "codex"), "observed-idle");
+  assert.equal(adapterConnectionState(true, [claude], "codex"), "awaiting");
+  assert.equal(adapterConnectionState(false, [], "codex"), "not-installed");
+  assert.equal(adapterConnectionState(false, [ended], "codex"), "not-installed");
+});
 
 test("builds a session timeline from lifecycle events", () => {
   const activity = fold([

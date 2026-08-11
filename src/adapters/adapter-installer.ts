@@ -1,8 +1,9 @@
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import * as path from "node:path";
 
 export type SupportedAgent = "codex" | "claude";
+export type AdapterInstallationStatus = Record<SupportedAgent, boolean>;
 
 type HookHandler = { type?: unknown; command?: unknown; timeout?: unknown };
 type HookGroup = { matcher?: unknown; hooks?: HookHandler[] };
@@ -56,7 +57,18 @@ export class AdapterInstaller {
     const command = this.command(agent);
     for (const event of EVENTS) {
       const groups = (configuration.hooks[event] ??= []);
-      if (!groups.some((group) => group.hooks?.some((handler) => handler.command === command))) {
+      const timeout = event === "SessionEnd" || event.endsWith("ToolUse") ? 3 : 10;
+      let repaired = false;
+      for (const group of groups) {
+        for (const handler of group.hooks ?? []) {
+          if (handler.command !== command) continue;
+          handler.type = "command";
+          handler.timeout = timeout;
+          if (event === "PostToolUse" || event === "PreToolUse") group.matcher = "*";
+          repaired = true;
+        }
+      }
+      if (!repaired) {
         groups.push({
           ...(event === "PostToolUse" || event === "PreToolUse" ? { matcher: "*" } : {}),
           // Tool hooks sit on the critical path of every call, so they get a short budget; the
@@ -64,13 +76,42 @@ export class AdapterInstaller {
           hooks: [{
             type: "command",
             command,
-            timeout: event === "SessionEnd" || event.endsWith("ToolUse") ? 3 : 10,
+            timeout,
           }],
         });
       }
     }
     await writeFile(configPath, `${JSON.stringify(configuration, null, 2)}\n`, { mode: 0o600 });
     return configPath;
+  }
+
+  /**
+   * Reports only whether every VibeCheck hook command is present in provider configuration.
+   * Provider trust/approval is deliberately outside this result and can only be established by
+   * observing lifecycle events emitted by the provider.
+   */
+  public async isInstalled(agent: SupportedAgent): Promise<boolean> {
+    try {
+      if (!(await stat(this.installedBridge)).isFile()) return false;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+    const configuration = await this.readConfiguration(this.configPath(agent));
+    const command = this.command(agent);
+    return EVENTS.every((event) =>
+      configuration.hooks?.[event]?.some((group) =>
+        group.hooks?.some((handler) => handler.type === "command" && handler.command === command),
+      ) === true,
+    );
+  }
+
+  public async installationStatus(): Promise<AdapterInstallationStatus> {
+    const [codex, claude] = await Promise.all([
+      this.isInstalled("codex"),
+      this.isInstalled("claude"),
+    ]);
+    return { codex, claude };
   }
 
   public async uninstall(agent: SupportedAgent): Promise<string> {
