@@ -6,31 +6,37 @@ VibeCheck is a VS Code extension that observes a Git-backed workspace, surfaces 
 
 ## See VibeCheck in action
 
-The Control Center is a single Activity Bar panel with four tabs: Status, Quality, Review, and Settings.
+The Control Center is a single Activity Bar panel with five tabs: Status, Quality, Review, Team, and Settings.
 
-| Status | Review |
+| Status | Quality |
 | --- | --- |
-| [![VibeCheck Status tab showing a readiness verdict, current test, coverage, security, and changed-file evidence, and three open findings](docs/images/vibecheck-status.png)](docs/images/vibecheck-status.png) | [![VibeCheck Review tab showing a completed Claude deep review with its activity summary and three defects located at specific files and lines](docs/images/vibecheck-review.png)](docs/images/vibecheck-review.png) |
-| One readiness verdict, the evidence behind it, and the findings still holding it back. | Explicit Codex or Claude semantic review, with every defect tied to a file and line. |
+| [![VibeCheck Status tab showing a readiness verdict, current test, coverage, security, and changed-file evidence, and three open findings](docs/images/vibecheck-status.png)](docs/images/vibecheck-status.png) | [![VibeCheck Quality tab showing four repository-owned gates where typecheck, tests, and dependency security passed and core coverage went stale](docs/images/vibecheck-quality.png)](docs/images/vibecheck-quality.png) |
+| One readiness verdict, the evidence behind it, and the findings still holding it back. | Repository-owned gates keep their command, result, timing, and report — and go stale when inputs change. |
 
-| Quality | Settings |
+| Review | Team |
 | --- | --- |
-| [![VibeCheck Quality tab showing four repository-owned gates where typecheck, tests, and dependency security passed and core coverage went stale](docs/images/vibecheck-quality.png)](docs/images/vibecheck-quality.png) | [![VibeCheck Settings tab showing model routing and provider usage windows for Codex and Claude](docs/images/vibecheck-settings.png)](docs/images/vibecheck-settings.png) |
-| Repository-owned gates keep their command, result, timing, and report — and go stale when inputs change. | Model routing, provider usage, the agent workspace, and local-data controls. |
+| [![VibeCheck Review tab showing a completed Claude deep review with its activity summary and three defects located at specific files and lines](docs/images/vibecheck-review.png)](docs/images/vibecheck-review.png) | [![VibeCheck Team tab showing a six-member roster compiled to Claude subagent files, with five in sync and one modified since deployment](docs/images/vibecheck-team.png)](docs/images/vibecheck-team.png) |
+| Explicit Codex or Claude semantic review, with every defect tied to a file and line. | A persistent roster defined in `.vibecheck/team.yaml`, with per-member deployment state. |
+
+| Settings |
+| --- |
+| [![VibeCheck Settings tab showing model routing and provider usage windows for Codex and Claude](docs/images/vibecheck-settings.png)](docs/images/vibecheck-settings.png) |
+| Model routing, provider usage, the agent workspace, and local-data controls. |
 
 Screenshots are generated from the real panel with `npm run screenshots`; see [docs/screenshots/](docs/screenshots/).
 
 ## What it provides
 
 - A VibeCheck Activity Bar Control Center, status bar, and diagnostics for local repository state.
-- An Activity Bar notification badge that mirrors the Status readiness verdict, counting the outstanding reasons whenever the Status page reports "Checks needed" or "Action needed".
+- An Activity Bar notification badge that lights up when a required verification gate has gone stale, with a tooltip naming how many.
 - Git- and workspace-based observation with start, pause, refresh, and local-data deletion controls.
 - Deterministic findings for runtime dependency changes, deleted or skipped/focused tests, removed assertions, sensitive-file changes, generated or binary additions, broad diffs, and configured import-boundary violations.
 - Explicit, trusted verification commands with pass/fail/stale state, input hashing, bounded output retention, and secret-assignment redaction.
+- Gate recommendations for missing quality checks: an explicit apply action installs the dependency with the detected package manager and only then adds the gate to `.vibecheck/config.yaml`.
 - Repository Markdown plan discovery and active-plan selection.
 - Markdown evidence reports, verification reports, and change summaries.
 - Explicit Codex or Claude semantic code reviews that validate structured file and line evidence before it reaches workspace state.
-- Team roster management with direct deploy and undeploy flows for default or custom agents.
+- A persistent engineering team defined in `.vibecheck/team.yaml` and compiled into native Claude subagent files plus a managed Team block in `AGENTS.md`, with deploy, undeploy, and per-member drift state.
 - Reviewed generation, preview, application, alignment, and reset flows for Claude and Codex workspace instruction/supporting files.
 - Optional Codex and Claude usage snapshots.
 
@@ -87,11 +93,21 @@ Use **Run Verification** for an individual configured gate or **Run All Verifica
 
 Verification results are associated with relevant workspace inputs. Changing a matching file makes a prior result stale rather than treating an earlier successful run as current.
 
+When the Quality tab shows a gate the repository cannot run yet — for example a missing coverage or lint dependency — **Install and add gate** shows exactly what will run before anything happens. VibeCheck installs the dependency with the detected package manager as an argument vector (never a shell string), and only adds the gate to `.vibecheck/config.yaml` once the install succeeds.
+
 ### Run a semantic code review
 
 Use **Run Code Review** and choose a configured provider/profile. Semantic reviews are explicit and read-only. VibeCheck validates structured evidence before persisting findings, keeps provider activity bounded, and marks reviews stale after relevant edits.
 
 Because the selected provider may process repository content through its configured service, use this workflow only when that processing is appropriate for the repository.
+
+### Maintain the engineering team
+
+The Team tab manages a persistent roster of specialist roles — by default Pam, Scout, Archy, Cody, Tristan, and Renee. The roster's structured fields live in `.vibecheck/team.yaml`; each member's role prompt is the body of `.claude/agents/<id>.md`, authored there directly. Deploying compiles the frontmatter of those subagent files and the managed Team block in `AGENTS.md`.
+
+Each member shows whether its compiled file is in sync, modified, or missing, so a hand-edited or drifted role is visible before it matters. Members can be enabled, disabled, added, or removed, and **Undeploy team** removes the generated provider files.
+
+Delegation itself happens in your own Claude Code and Codex sessions. VibeCheck maintains the roster and never launches these agents.
 
 ### Grant provider permissions ahead of time
 
@@ -114,6 +130,7 @@ Repository configuration lives in `.vibecheck/`:
 
 - [`config.yaml`](.vibecheck/config.yaml) defines plan discovery, verification commands, invalidation paths, and the diff-expansion threshold.
 - [`rules.yaml`](.vibecheck/rules.yaml) defines import boundaries.
+- [`team.yaml`](.vibecheck/team.yaml) defines the engineering roster: provider policy, profile, and each member's structured fields.
 
 The current configuration defines these required quality gates:
 
@@ -198,7 +215,7 @@ npm run package:vsix
 Install a locally packaged build with:
 
 ```bash
-code --install-extension packages/vibecheck-0.6.18.vsix --force
+code --install-extension packages/vibecheck-0.8.0.vsix --force
 ```
 
 Reload the target VS Code window after installation.
@@ -223,11 +240,11 @@ team roster ───────────────┘
 - `src/verification/` executes trusted commands and tracks freshness.
 - `src/reviews/` runs provider-backed reviews and validates their structured output.
 - `src/adapters/` retains the explicit cleanup path for legacy monitoring hooks.
-- `src/team/` manages roster compilation, direct deployment, and undeployment.
+- `src/team/` manages roster compilation, direct deployment, and undeployment, and stays out of `src/ui/`.
 - `src/agent-instructions/` manages reviewed workspace-file proposals, alignment, backups, and explicit apply boundaries.
 - `src/ui/` renders the VS Code surfaces without directly importing collector, configuration, or verification modules.
 
-The configured rules preserve two important boundaries: UI modules do not read repository/configuration/verification adapters directly, and domain modules do not depend on implementation layers.
+The configured rules preserve two important boundaries: UI modules do not read repository/configuration/verification/team adapters directly, and domain modules do not depend on implementation layers.
 
 ## Local-first and privacy constraints
 
@@ -241,4 +258,4 @@ Legacy VibeCheck monitoring hooks can be removed explicitly with the `Remove Leg
 
 The repository’s implementation plan identifies the local repository-mode workflow, deterministic findings, verification freshness, plan-aware intervention, team management, architecture-boundary checks, code review, and model routing as implemented. Current work is focused on product validation and hardening, including dogfooding, extension-host automation, large-repository performance measurement, richer language resolution, and multi-root support. See [PLAN.md](PLAN.md) for the detailed implementation plan.
 
-<!-- vibecheck-readme: reviewed-at=2026-08-09T21:56:34.671Z; commit=fbbdfff4780a7e35a58f0216dd9d0476dd4fa38a -->
+<!-- vibecheck-readme: reviewed-at=2026-08-11T23:40:34.967Z; commit=ce9410c23dbcb8c495c9fe649195b5409933dc3a -->

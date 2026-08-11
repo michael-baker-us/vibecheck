@@ -282,9 +282,105 @@ const BASE_STATE = {
   },
 };
 
+/**
+ * Mirrors the roster VibeCheck seeds in `src/team/default-team.ts`, deployed with one member
+ * hand-edited since compilation so the capture shows both the in-sync and drifted states.
+ */
+const TEAM_MEMBERS = [
+  {
+    id: "pam",
+    name: "Pam",
+    title: "Product Manager and Team Lead",
+    description:
+      "Use when a request is vague, broad, or has unclear scope, to turn it into concrete "
+      + "requirements and acceptance criteria and to decide which specialists are needed.",
+    tier: "balanced",
+    tools: "read-only",
+    state: "in-sync",
+  },
+  {
+    id: "scout",
+    name: "Scout",
+    title: "Investigator and Debugger",
+    description:
+      "Use to investigate an unknown problem before anyone changes code: tracing a crash, finding "
+      + "a root cause, or exploring an unfamiliar subsystem. Produces findings and evidence, not fixes.",
+    tier: "balanced",
+    tools: "inspection",
+    state: "in-sync",
+  },
+  {
+    id: "archy",
+    name: "Archy",
+    title: "Architect",
+    description:
+      "Use before implementing cross-cutting changes, new subsystems, major refactors, or decisions "
+      + "that are expensive to reverse. Produces a design and implementation tasks.",
+    tier: "deep",
+    tools: "read-only",
+    state: "modified",
+  },
+  {
+    id: "cody",
+    name: "Cody",
+    title: "Coder",
+    description:
+      "Use to implement a defined change: features, bug fixes, refactors, and their tests. "
+      + "Follows an existing design when one exists.",
+    tier: "fast",
+    tools: "editing",
+    state: "in-sync",
+  },
+  {
+    id: "tristan",
+    name: "Tristan",
+    title: "Tester",
+    description:
+      "Use to verify behavior independently once a change is implemented: deriving edge cases from "
+      + "acceptance criteria, reproducing failures, and hunting regressions.",
+    tier: "balanced",
+    tools: "inspection",
+    state: "in-sync",
+  },
+  {
+    id: "renee",
+    name: "Renee",
+    title: "Reviewer",
+    description:
+      "Use for final independent engineering review before work is considered ready to ship. "
+      + "Returns an explicit approved, changes-requested, or blocked verdict.",
+    tier: "deep",
+    tools: "read-only",
+    state: "in-sync",
+  },
+];
+
+const TEAM = {
+  kind: "ready",
+  status: {
+    policy: { provider: "balanced-auto", profile: "balanced" },
+    roster: { path: ".vibecheck/team.yaml", state: "in-sync" },
+    instructions: { path: "AGENTS.md", state: "in-sync" },
+    members: TEAM_MEMBERS.map((entry) => ({
+      member: {
+        id: entry.id,
+        name: entry.name,
+        title: entry.title,
+        description: entry.description,
+        tier: entry.tier,
+        tools: entry.tools,
+        providers: ["claude", "codex"],
+        enabled: true,
+      },
+      files: [{ path: ".claude/agents/" + entry.id + ".md", state: entry.state }],
+    })),
+  },
+};
+
 const BASE_PAYLOAD = {
   kind: "ready",
   state: BASE_STATE,
+  team: TEAM,
   readiness: {
     status: "incomplete",
     label: "Checks needed",
@@ -402,6 +498,15 @@ const CAPTURES = [
     webviewState: {
       activeView: "quality",
       expandedSections: ["quality:gates"],
+    },
+    payload: BASE_PAYLOAD,
+  },
+  {
+    name: "team",
+    file: "vibecheck-team.png",
+    webviewState: {
+      activeView: "team",
+      expandedSections: ["team:roster"],
     },
     payload: BASE_PAYLOAD,
   },
