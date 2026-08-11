@@ -12,27 +12,17 @@ const { TEAM_BLOCK_START, parseTeamWatermark } = require("../dist/team/team-comp
 const createRepository = (context) => {
   const root = mkdtempSync(join(tmpdir(), "vibecheck-team-service-"));
   context.after(() => rmSync(root, { recursive: true, force: true }));
-  const backups = join(root, "..", `backups-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  mkdirSync(backups, { recursive: true });
-  context.after(() => rmSync(backups, { recursive: true, force: true }));
-  return { root, backups };
+  return root;
 };
 
 const seeded = async (context) => {
-  const { root, backups } = createRepository(context);
+  const root = createRepository(context);
   const service = new TeamService();
   const roster = await service.seed(root);
-  return { root, backups, service, roster };
+  return { root, service, roster };
 };
 
-const applyAll = async (service, root, roster, backups) => {
-  const preview = await service.preview(root, roster);
-  const removals = [
-    ...await service.orphans(root, roster),
-    ...await service.legacyBodies(root, roster),
-  ];
-  return service.apply(root, preview, backups, removals);
-};
+const deploy = (service, root, roster) => service.deploy(root, roster);
 
 test("seeds the default roster and refuses to overwrite an existing one", async (context) => {
   const { root, service, roster } = await seeded(context);
@@ -49,9 +39,44 @@ test("seeding writes no provider files until the roster is applied", async (cont
   assert.equal(existsSync(join(root, "AGENTS.md")), false);
 });
 
+test("restores removed default members without replacing existing roster entries", async (context) => {
+  const { root, service, roster } = await seeded(context);
+  const customized = {
+    ...roster,
+    members: [
+      { ...roster.members.find((member) => member.id === "cody"), name: "Custom Cody" },
+      {
+        id: "quinn",
+        name: "Quinn",
+        title: "Release Manager",
+        description: "Use to prepare releases while preserving the repository's release conventions.",
+        tier: "balanced",
+        tools: "inspection",
+        providers: ["claude"],
+        enabled: true,
+      },
+    ],
+  };
+  await new TeamLoader().save(root, customized);
+
+  const restored = await service.restoreDefaults(root, customized);
+
+  assert.equal(restored.members.length, 7);
+  assert.equal(restored.members.find((member) => member.id === "cody").name, "Custom Cody");
+  assert.ok(restored.members.some((member) => member.id === "quinn"));
+  assert.deepEqual(
+    restored.members.filter((member) => DEFAULT_TEAM.members.some((item) => item.id === member.id)).map((member) => member.id).sort(),
+    DEFAULT_TEAM.members.map((member) => member.id).sort(),
+  );
+
+  await deploy(service, root, restored);
+  assert.ok(existsSync(join(root, ".claude", "agents", "pam.md")));
+  assert.ok(readFileSync(join(root, "AGENTS.md"), "utf8").includes("**Pam**"));
+});
+
 test("applies the roster to native Claude subagents and the managed AGENTS.md block", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
-  const result = await applyAll(service, root, roster, backups);
+  const { root, service, roster } = await seeded(context);
+  const result = await deploy(service, root, roster);
 
   assert.equal(result.changedFiles.length, 7);
   assert.deepEqual(readdirSync(join(root, ".claude", "agents")).sort(), [
@@ -60,30 +85,26 @@ test("applies the roster to native Claude subagents and the managed AGENTS.md bl
   const instructions = readFileSync(join(root, "AGENTS.md"), "utf8");
   assert.ok(instructions.includes(TEAM_BLOCK_START));
   assert.ok(instructions.includes("**Cody**"));
-  assert.equal(result.backupDirectory, undefined);
 });
 
 test("preserves hand-written AGENTS.md content around the managed block", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
+  const { root, service, roster } = await seeded(context);
   writeFileSync(join(root, "AGENTS.md"), "# Repository guidance\n\nKeep this.\n", "utf8");
-  const result = await applyAll(service, root, roster, backups);
+  await deploy(service, root, roster);
 
   const instructions = readFileSync(join(root, "AGENTS.md"), "utf8");
   assert.ok(instructions.startsWith("# Repository guidance\n\nKeep this."));
   assert.ok(instructions.includes("**Renee**"));
-  // The replaced AGENTS.md is recoverable outside the repository.
-  const backed = join(result.backupDirectory, "AGENTS.md");
-  assert.equal(readFileSync(backed, "utf8"), "# Repository guidance\n\nKeep this.\n");
 });
 
 test("reports drift for missing, in-sync, and hand-edited compiled files", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
+  const { root, service, roster } = await seeded(context);
 
   const before = await service.status(root, roster);
   assert.ok(before.members.every((entry) => entry.files[0].state === "missing"));
   assert.equal(before.instructions.state, "missing");
 
-  await applyAll(service, root, roster, backups);
+  await deploy(service, root, roster);
   const after = await service.status(root, roster);
   assert.ok(after.members.every((entry) => entry.files[0].state === "in-sync"));
   assert.equal(after.instructions.state, "in-sync");
@@ -93,47 +114,34 @@ test("reports drift for missing, in-sync, and hand-edited compiled files", async
   assert.equal(drifted.members.find((entry) => entry.member.id === "cody").files[0].state, "modified");
 });
 
-// A stale preview would silently discard whatever changed underneath it.
-test("refuses to apply a preview generated before the file changed", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
-  const preview = await service.preview(root, roster);
-  writeFileSync(join(root, "AGENTS.md"), "written after the preview\n", "utf8");
-
-  await assert.rejects(
-    service.apply(root, preview, backups),
-    /AGENTS\.md changed after the preview was generated/,
-  );
-});
-
-test("re-applying an unchanged roster is a no-op", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
-  await applyAll(service, root, roster, backups);
-  const result = await applyAll(service, root, roster, backups);
+test("re-deploying an unchanged roster is a no-op", async (context) => {
+  const { root, service, roster } = await seeded(context);
+  await deploy(service, root, roster);
+  const result = await deploy(service, root, roster);
   assert.deepEqual(result.changedFiles, []);
 });
 
-test("disabling a member withdraws its compiled subagent and backs it up", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
-  await applyAll(service, root, roster, backups);
+test("disabling a member withdraws its compiled subagent", async (context) => {
+  const { root, service, roster } = await seeded(context);
+  await deploy(service, root, roster);
 
   const updated = await service.setEnabled(root, roster, "scout", false);
   assert.deepEqual(await service.orphans(root, updated), [".claude/agents/scout.md"]);
 
-  const result = await applyAll(service, root, updated, backups);
+  const result = await deploy(service, root, updated);
   assert.equal(existsSync(join(root, ".claude", "agents", "scout.md")), false);
   assert.ok(result.changedFiles.includes(".claude/agents/scout.md"));
-  assert.ok(existsSync(join(result.backupDirectory, ".claude", "agents", "scout.md")));
   assert.ok(!readFileSync(join(root, "AGENTS.md"), "utf8").includes("**Scout**"));
 });
 
 test("removing a member deletes its roster entry and its subagent file", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
-  await applyAll(service, root, roster, backups);
+  const { root, service, roster } = await seeded(context);
+  await deploy(service, root, roster);
 
   const updated = await service.remove(root, roster, "tristan");
   assert.equal(updated.members.length, 5);
 
-  await applyAll(service, root, updated, backups);
+  await deploy(service, root, updated);
   assert.equal(existsSync(join(root, ".claude", "agents", "tristan.md")), false);
   assert.equal(await new TeamLoader().load(root).then((next) => next.members.length), 5);
   await assert.rejects(service.remove(root, updated, "tristan"), /No team member with id "tristan"/);
@@ -142,8 +150,8 @@ test("removing a member deletes its roster entry and its subagent file", async (
 // The role prompt exists in exactly one place now, so a roster edit that rewrites frontmatter must
 // not cost the user the prompt they wrote.
 test("keeps the authored role prompt across roster edits", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
-  await applyAll(service, root, roster, backups);
+  const { root, service, roster } = await seeded(context);
+  await deploy(service, root, roster);
 
   const file = join(root, ".claude", "agents", "cody.md");
   const edited = readFileSync(file, "utf8").replace(
@@ -154,7 +162,7 @@ test("keeps the authored role prompt across roster edits", async (context) => {
 
   const updated = await service.setEnabled(root, roster, "cody", true);
   const promoted = await service.remove(root, updated, "scout");
-  await applyAll(service, root, promoted, backups);
+  await deploy(service, root, promoted);
 
   const after = readFileSync(file, "utf8");
   assert.ok(after.includes("- Never touch the vendored directory."), "authored body must survive");
@@ -164,128 +172,106 @@ test("keeps the authored role prompt across roster edits", async (context) => {
 // Repositories seeded by 0.7.0 keep their prompts in .vibecheck/agents/. Those must migrate into
 // the subagent file rather than being silently replaced by the defaults.
 test("migrates legacy role prompts and then removes them", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
+  const { root, service, roster } = await seeded(context);
   mkdirSync(join(root, ".vibecheck", "agents"), { recursive: true });
   writeFileSync(join(root, ".vibecheck", "agents", "cody.md"), "Legacy Cody prompt.\n", "utf8");
 
   assert.deepEqual(await service.legacyBodies(root, roster), [".vibecheck/agents/cody.md"]);
-  const result = await applyAll(service, root, roster, backups);
+  const result = await deploy(service, root, roster);
 
   assert.ok(readFileSync(join(root, ".claude", "agents", "cody.md"), "utf8").includes("Legacy Cody prompt."));
   assert.equal(existsSync(join(root, ".vibecheck", "agents", "cody.md")), false);
-  assert.ok(existsSync(join(result.backupDirectory, ".vibecheck", "agents", "cody.md")));
+  assert.ok(result.changedFiles.includes(".vibecheck/agents/cody.md"));
   assert.deepEqual(await service.legacyBodies(root, roster), []);
 });
 
 // Subagents the user wrote by hand share the directory and must survive roster maintenance.
 test("never removes subagent files it did not generate", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
-  await applyAll(service, root, roster, backups);
+  const { root, service, roster } = await seeded(context);
+  await deploy(service, root, roster);
   mkdirSync(join(root, ".claude", "agents"), { recursive: true });
   writeFileSync(join(root, ".claude", "agents", "mine.md"), "---\nname: mine\n---\nMy own agent.\n", "utf8");
 
   const updated = await service.remove(root, roster, "cody");
   assert.deepEqual(await service.orphans(root, updated), [".claude/agents/cody.md"]);
 
-  await applyAll(service, root, updated, backups);
+  await deploy(service, root, updated);
   assert.ok(existsSync(join(root, ".claude", "agents", "mine.md")));
   assert.equal(existsSync(join(root, ".claude", "agents", "cody.md")), false);
 });
 
 test("undeploy removes generated files and managed instructions while retaining the roster", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
+  const { root, service, roster } = await seeded(context);
   writeFileSync(join(root, "AGENTS.md"), "# Guidance\n\nKeep this.\n", "utf8");
-  await applyAll(service, root, roster, backups);
+  await deploy(service, root, roster);
   writeFileSync(join(root, ".claude", "agents", "mine.md"), "---\nname: mine\n---\nHand authored.\n", "utf8");
 
-  const preview = await service.previewUndeploy(root);
-  assert.equal(preview.files.length, 7);
-  const result = await service.undeploy(root, preview, backups);
+  const result = await service.undeploy(root);
 
-  assert.ok(result.backupDirectory);
+  assert.equal(result.changedFiles.length, 7);
   assert.ok(existsSync(join(root, ".vibecheck", "team.yaml")));
   assert.ok(existsSync(join(root, ".claude", "agents", "mine.md")));
   assert.equal(existsSync(join(root, ".claude", "agents", "cody.md")), false);
   assert.equal(readFileSync(join(root, "AGENTS.md"), "utf8"), "# Guidance\n\nKeep this.\n");
-  assert.ok(existsSync(join(result.backupDirectory, ".claude", "agents", "cody.md")));
-  assert.ok(existsSync(join(result.backupDirectory, "AGENTS.md")));
 });
 
-test("undeploy rejects a stale preview", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
-  await applyAll(service, root, roster, backups);
-  const preview = await service.previewUndeploy(root);
-  writeFileSync(join(root, ".claude", "agents", "cody.md"), "changed after preview\n", "utf8");
-  await assert.rejects(service.undeploy(root, preview, backups), /changed after the preview/);
-  assert.ok(existsSync(join(root, ".vibecheck", "team.yaml")));
-});
-
-test("rejects symlinked team targets during preview and apply", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
-  const outside = join(backups, "outside.md");
+test("rejects a symlinked instructions target during deploy", async (context) => {
+  const { root, service, roster } = await seeded(context);
+  const outside = join(root, "outside.md");
   writeFileSync(outside, "outside\n", "utf8");
   symlinkSync(outside, join(root, "AGENTS.md"));
-  await assert.rejects(service.preview(root, roster, backups), /unsafe team file: AGENTS\.md/);
-
-  rmSync(join(root, "AGENTS.md"));
-  const preview = await service.preview(root, roster, backups);
-  symlinkSync(outside, join(root, "AGENTS.md"));
-  await assert.rejects(service.apply(root, preview, backups), /unsafe team file: AGENTS\.md/);
+  await assert.rejects(service.deploy(root, roster), /unsafe team file: AGENTS\.md/);
   assert.equal(readFileSync(outside, "utf8"), "outside\n");
 });
 
 test("rejects symlinked agent directories and generated agent files", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
-  const outsideDirectory = join(backups, "outside-agents");
+  const { root, service, roster } = await seeded(context);
+  const outsideDirectory = join(root, "outside-agents");
   mkdirSync(outsideDirectory);
   mkdirSync(join(root, ".claude"));
   symlinkSync(outsideDirectory, join(root, ".claude", "agents"));
-  await assert.rejects(service.preview(root, roster, backups), /unsafe team directory: \.claude\/agents/);
+  await assert.rejects(service.deploy(root, roster), /unsafe team directory: \.claude\/agents/);
 
   rmSync(join(root, ".claude", "agents"));
-  await applyAll(service, root, roster, backups);
-  const undeployPreview = await service.previewUndeploy(root);
-  const outside = join(backups, "outside-agent.md");
+  await deploy(service, root, roster);
+  const outside = join(root, "outside-agent.md");
   writeFileSync(outside, "outside\n", "utf8");
   rmSync(join(root, ".claude", "agents", "cody.md"));
   symlinkSync(outside, join(root, ".claude", "agents", "cody.md"));
-  await assert.rejects(service.previewUndeploy(root), /unsafe team file: \.claude\/agents\/cody\.md/);
-  await assert.rejects(service.undeploy(root, undeployPreview, backups), /unsafe team file: \.claude\/agents\/cody\.md/);
+  await assert.rejects(service.undeploy(root), /unsafe team file: \.claude\/agents\/cody\.md/);
   assert.equal(readFileSync(outside, "utf8"), "outside\n");
 });
 
-test("undeploy rejects generated target-set drift", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
-  await applyAll(service, root, roster, backups);
-  const preview = await service.previewUndeploy(root);
+test("undeploy deletes every watermarked team file it finds", async (context) => {
+  const { root, service, roster } = await seeded(context);
+  await deploy(service, root, roster);
   const cody = readFileSync(join(root, ".claude", "agents", "cody.md"), "utf8");
   writeFileSync(join(root, ".claude", "agents", "new-generated.md"), cody, "utf8");
 
-  await assert.rejects(service.undeploy(root, preview, backups), /Generated team files changed after the preview/);
-  assert.ok(existsSync(join(root, ".claude", "agents", "new-generated.md")));
-  assert.ok(existsSync(join(root, ".claude", "agents", "cody.md")));
+  const result = await service.undeploy(root);
+  assert.ok(result.changedFiles.includes(".claude/agents/new-generated.md"));
+  assert.equal(existsSync(join(root, ".claude", "agents", "new-generated.md")), false);
+  assert.equal(existsSync(join(root, ".claude", "agents", "cody.md")), false);
 });
 
-test("redeploy restores an authored role body retained outside the repository", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
-  await applyAll(service, root, roster, backups);
+test("redeploy recreates deleted role files from the roster defaults", async (context) => {
+  const { root, service, roster } = await seeded(context);
+  await deploy(service, root, roster);
   const codyPath = join(root, ".claude", "agents", "cody.md");
   writeFileSync(codyPath, readFileSync(codyPath, "utf8").replace(
     "You are Cody, the implementer for this repository.",
     "You are Cody. Preserve this custom role body across undeployment.",
   ), "utf8");
 
-  const undeployPreview = await service.previewUndeploy(root);
-  await service.undeploy(root, undeployPreview, backups);
+  await service.undeploy(root);
   assert.equal(existsSync(codyPath), false);
 
-  const deployPreview = await service.preview(root, roster, backups);
-  await service.apply(root, deployPreview, backups);
-  assert.match(readFileSync(codyPath, "utf8"), /Preserve this custom role body across undeployment/);
+  await service.deploy(root, roster);
+  assert.match(readFileSync(codyPath, "utf8"), /You are Cody, the implementer for this repository/);
 });
 
 test("adds a new member and compiles it with a watermark", async (context) => {
-  const { root, backups, service, roster } = await seeded(context);
+  const { root, service, roster } = await seeded(context);
   const updated = await service.add(root, roster, {
     id: "quinn",
     name: "Quinn",
@@ -296,7 +282,7 @@ test("adds a new member and compiles it with a watermark", async (context) => {
     providers: ["claude"],
     enabled: true,
   });
-  await applyAll(service, root, updated, backups);
+  await deploy(service, root, updated);
 
   const compiled = readFileSync(join(root, ".claude", "agents", "quinn.md"), "utf8");
   assert.equal(parseTeamWatermark(compiled).id, "quinn");

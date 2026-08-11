@@ -402,7 +402,7 @@ export function controlCenterHtml(cspSource: string): string {
     const roster=section('Roster',teamReady?team.status.members.filter(m=>m.member.enabled).length+' enabled':team&&team.kind==='error'?'error':'not configured','team:roster',true);
     pages.team.append(el('div','eyebrow','Engineering team'),el('div','section-intro','A persistent team defined once in .vibecheck/team.yaml and compiled into native Claude subagents plus a managed Team block in AGENTS.md. Delegation happens in your own Claude Code and Codex sessions — VibeCheck maintains the roster and never launches these agents.'));
     if(!team||team.kind==='absent'){
-      const seed=el('div','callout'); seed.append(el('strong','','No team configured'),el('p','','Seed Pam, Scout, Archy, Cody, Tristan, and Renee with editable role prompts. Nothing is written to .claude/ or AGENTS.md until you review and apply.'));
+      const seed=el('div','callout'); seed.append(el('strong','','No team configured'),el('p','','Seed Pam, Scout, Archy, Cody, Tristan, and Renee with editable role prompts. Deploying creates their provider files.'));
       const seedActions=el('div','item-actions'); seedActions.append(button('Create default team','install-default-team',undefined,'primary')); seed.append(seedActions); roster.content.append(seed);
     } else if(team.kind==='error'){
       const bad=el('div','callout danger'); bad.append(el('strong','','Team roster could not be loaded'),el('p','',team.reason));
@@ -413,7 +413,7 @@ export function controlCenterHtml(cspSource: string): string {
       statusHead.append(el('strong','','Provider files'),el('span','badge '+(drifted?'incomplete':'ready'),drifted?drifted+' pending':'in sync'));
       status.append(statusHead,el('div','meta',st.policy.provider+' · '+st.policy.profile+' profile · AGENTS.md block '+st.instructions.state));
       const rosterActions=el('div','item-actions');
-      rosterActions.append(button('Preview deployment','preview-team',undefined,'secondary'),button(drifted?'Deploy team':'Re-deploy team','apply-team',undefined,drifted?'primary':'ghost'),button('Undeploy team','undeploy-team',undefined,'ghost danger'),button('Add member','add-team-member',undefined,'ghost'),button('Open team.yaml','open-team-roster',undefined,'ghost'));
+      rosterActions.append(button(drifted?'Deploy team':'Re-deploy team','deploy-team',undefined,drifted?'primary':'ghost'),button('Undeploy team','undeploy-team',undefined,'ghost danger'),button('Restore defaults','install-default-team',undefined,'ghost'),button('Add member','add-team-member',undefined,'ghost'),button('Open team.yaml','open-team-roster',undefined,'ghost'));
       status.append(rosterActions); roster.content.append(status);
       if(!st.members.length) roster.content.append(el('div','empty','The roster has no members.'));
       st.members.forEach(entry=>{

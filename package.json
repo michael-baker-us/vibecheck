@@ -231,19 +231,13 @@
       },
       {
         "command": "vibecheck.installDefaultTeam",
-        "title": "Create Default Engineering Team",
+        "title": "Create or Restore Default Engineering Team",
         "category": "VibeCheck",
         "icon": "$(organization)"
       },
       {
-        "command": "vibecheck.previewTeam",
-        "title": "Preview Team Provider Files",
-        "category": "VibeCheck",
-        "icon": "$(diff)"
-      },
-      {
-        "command": "vibecheck.applyTeam",
-        "title": "Apply Team to Claude and Codex",
+        "command": "vibecheck.deployTeam",
+        "title": "Deploy Engineering Team",
         "category": "VibeCheck",
         "icon": "$(check)"
       },

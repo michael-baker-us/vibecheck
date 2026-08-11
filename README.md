@@ -30,7 +30,7 @@ Screenshots are generated from the real panel with `npm run screenshots`; see [d
 - Repository Markdown plan discovery and active-plan selection.
 - Markdown evidence reports, verification reports, and change summaries.
 - Explicit Codex or Claude semantic code reviews that validate structured file and line evidence before it reaches workspace state.
-- Team roster management with reviewed deploy, redeploy, and undeploy flows for default or custom agents.
+- Team roster management with direct deploy and undeploy flows for default or custom agents.
 - Reviewed generation, preview, application, alignment, and reset flows for Claude and Codex workspace instruction/supporting files.
 - Optional Codex and Claude usage snapshots.
 
@@ -223,7 +223,7 @@ team roster ───────────────┘
 - `src/verification/` executes trusted commands and tracks freshness.
 - `src/reviews/` runs provider-backed reviews and validates their structured output.
 - `src/adapters/` retains the explicit cleanup path for legacy monitoring hooks.
-- `src/team/` manages roster compilation, deployment, undeployment, and recoverable backups.
+- `src/team/` manages roster compilation, direct deployment, and undeployment.
 - `src/agent-instructions/` manages reviewed workspace-file proposals, alignment, backups, and explicit apply boundaries.
 - `src/ui/` renders the VS Code surfaces without directly importing collector, configuration, or verification modules.
 
@@ -233,7 +233,7 @@ The configured rules preserve two important boundaries: UI modules do not read r
 
 VibeCheck has no hosted backend, account requirement, telemetry pipeline, or required network connection. Repository findings, verification output, and reports remain local.
 
-Provider-backed actions are opt-in and read-only. Provider prompts, assistant messages, transcripts, tool arguments, tool output, and credentials are not retained in persistent extension state. Team management writes only reviewed repository instruction and role files; it does not monitor provider sessions.
+Provider-backed actions are opt-in and read-only. Provider prompts, assistant messages, transcripts, tool arguments, tool output, and credentials are not retained in persistent extension state. Team management writes only repository instruction and role files; it does not monitor provider sessions.
 
 Legacy VibeCheck monitoring hooks can be removed explicitly with the `Remove Legacy Agent Monitoring Adapter` command. Other provider hooks are preserved.
 

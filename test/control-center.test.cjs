@@ -58,9 +58,10 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.doesNotMatch(source, /teamLive|lifecycleSessions|Team activity|Agent connections/);
   // The Team panel must keep stating that VibeCheck maintains the roster but never runs the agents.
   assert.match(source, /never launches these agents/);
-  assert.match(source, /Preview deployment/);
+  assert.doesNotMatch(source, /Preview deployment/);
   assert.match(source, /Deploy team/);
   assert.match(source, /Undeploy team/);
+  assert.match(source, /Restore defaults/);
   assert.doesNotMatch(source, /install-codex|install-claude|remove-adapter/);
   assert.match(source, /tools:'settings'/, "an existing saved Tools selection must migrate");
   assert.doesNotMatch(source, /pages\.tools\b/);
@@ -134,7 +135,7 @@ test("ships a syntactically valid task-oriented Control Center", () => {
     "set-agent-alignment", "resolve-agent-alignment", "clear-agent-workspace",
     "inspect-review", "inspect-finding", "accept-finding", "dismiss-finding",
     "reopen-finding", "prompt-finding", "run-check", "check-output",
-    "install-default-team", "preview-team", "apply-team", "undeploy-team", "add-team-member",
+    "install-default-team", "deploy-team", "undeploy-team", "add-team-member",
     "open-team-roster", "open-team-member", "toggle-team-member", "delete-team-member",
   ]) {
     assert.match(source, new RegExp(`['"]${action}['"]`), `expected ${action} to remain reachable`);

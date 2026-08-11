@@ -342,18 +342,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.commands.registerCommand("vibecheck.installDefaultTeam", () =>
       installDefaultTeam(controller, teamService, refreshTeam, controlCenter)),
-    vscode.commands.registerCommand("vibecheck.previewTeam", () =>
-      previewTeam(
+    vscode.commands.registerCommand("vibecheck.deployTeam", () =>
+      deployTeam(
         controller,
         teamService,
-        instructionPreviewProvider,
-        path.join(context.globalStorageUri.fsPath, "team-backups"),
-      )),
-    vscode.commands.registerCommand("vibecheck.applyTeam", () =>
-      applyTeam(
-        controller,
-        teamService,
-        path.join(context.globalStorageUri.fsPath, "team-backups"),
         refreshTeam,
         controlCenter,
         output,
@@ -362,7 +354,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       undeployTeam(
         controller,
         teamService,
-        path.join(context.globalStorageUri.fsPath, "team-backups"),
         refreshTeam,
         controlCenter,
         output,
@@ -1564,60 +1555,30 @@ async function installDefaultTeam(
   const snapshot = controller.getSnapshot();
   if (snapshot.kind !== "ready") return;
   try {
-    const roster = await service.seed(snapshot.state.repositoryRoot);
+    const existing = await service.load(snapshot.state.repositoryRoot);
+    const roster = existing
+      ? await service.restoreDefaults(snapshot.state.repositoryRoot, existing)
+      : await service.seed(snapshot.state.repositoryRoot);
+    const restored = roster.members.length - (existing?.members.length ?? 0);
+    if (existing && restored === 0) {
+      void vscode.window.showInformationMessage("All default team members are already in the roster.");
+      return;
+    }
     await refreshTeam();
     controlCenter.refresh();
     void vscode.window.showInformationMessage(
-      `Created ${roster.members.length} team members in ${TEAM_ROSTER_PATH}. Review them, then apply to write provider files.`,
+      existing
+        ? `Restored ${restored} default team member${restored === 1 ? "" : "s"}. Deploy the team when you are ready.`
+        : `Created ${roster.members.length} team members in ${TEAM_ROSTER_PATH}. Deploy the team when you are ready.`,
     );
   } catch (error) {
     void vscode.window.showErrorMessage(errorMessage(error));
   }
 }
 
-async function previewTeam(
+async function deployTeam(
   controller: ObservationController,
   service: TeamService,
-  previewProvider: InstructionPreviewProvider,
-  backupRoot: string,
-): Promise<void> {
-  const context = await requireRoster(controller, service);
-  if (!context) return;
-  try {
-    const preview = await service.preview(context.repositoryRoot, context.roster, backupRoot);
-    const changed = preview.files.filter((file) => file.status !== "unchanged");
-    if (!changed.length) {
-      void vscode.window.showInformationMessage("Provider files already match the team roster.");
-      return;
-    }
-    previewProvider.setProposal({
-      summary: "VibeCheck team roster",
-      files: changed.map((file) => ({
-        path: file.path as InstructionFilePath,
-        status: file.status === "updated" ? "modified" : "created",
-        rationale: "Compiled from .vibecheck/team.yaml.",
-        ...(file.originalContent === undefined ? {} : { originalContent: file.originalContent }),
-        proposedContent: file.proposedContent,
-      })),
-    });
-    for (const file of changed) {
-      await vscode.commands.executeCommand(
-        "vscode.diff",
-        previewProvider.uri("original", file.path as InstructionFilePath),
-        previewProvider.uri("proposed", file.path as InstructionFilePath),
-        `${file.path} — Current ↔ Proposed`,
-        { preview: false },
-      );
-    }
-  } catch (error) {
-    void vscode.window.showErrorMessage(errorMessage(error));
-  }
-}
-
-async function applyTeam(
-  controller: ObservationController,
-  service: TeamService,
-  backupRoot: string,
   refreshTeam: () => Promise<void>,
   controlCenter: ControlCenterProvider,
   output: vscode.OutputChannel,
@@ -1625,33 +1586,15 @@ async function applyTeam(
   const context = await requireRoster(controller, service);
   if (!context) return;
   try {
-    const preview = await service.preview(context.repositoryRoot, context.roster, backupRoot);
-    const orphans = [
-      ...await service.orphans(context.repositoryRoot, context.roster),
-      ...await service.legacyBodies(context.repositoryRoot, context.roster),
-    ];
-    const changed = preview.files.filter((file) => file.status !== "unchanged");
-    if (!changed.length && !orphans.length) {
+    const result = await service.deploy(context.repositoryRoot, context.roster);
+    if (!result.changedFiles.length) {
       void vscode.window.showInformationMessage("Provider files already match the team roster.");
       return;
     }
-    const replaced = changed.filter((file) => file.status === "updated").length + orphans.length;
-    const confirmation = await vscode.window.showWarningMessage(
-      `Write ${changed.length} file(s)${orphans.length ? ` and remove ${orphans.length} redundant file(s)` : ""}?`
-      + (replaced ? " Replaced files are backed up outside the repository." : ""),
-      { modal: true, detail: [...changed.map((file) => file.path), ...orphans].join("\n") },
-      "Apply",
-    );
-    if (confirmation !== "Apply") return;
-
-    const result = await service.apply(context.repositoryRoot, preview, backupRoot, orphans);
     await refreshTeam();
     controlCenter.refresh();
-    output.appendLine(`Team applied: ${result.changedFiles.join(", ")}`);
-    void vscode.window.showInformationMessage(
-      `Updated ${result.changedFiles.length} file(s).`
-      + (result.backupDirectory ? ` Backups: ${result.backupDirectory}` : ""),
-    );
+    output.appendLine(`Team deployed: ${result.changedFiles.join(", ")}`);
+    void vscode.window.showInformationMessage(`Team deployed. Updated ${result.changedFiles.length} file(s).`);
   } catch (error) {
     void vscode.window.showErrorMessage(errorMessage(error));
   }
@@ -1660,7 +1603,6 @@ async function applyTeam(
 async function undeployTeam(
   controller: ObservationController,
   service: TeamService,
-  backupRoot: string,
   refreshTeam: () => Promise<void>,
   controlCenter: ControlCenterProvider,
   output: vscode.OutputChannel,
@@ -1668,27 +1610,15 @@ async function undeployTeam(
   const context = await requireRoster(controller, service);
   if (!context) return;
   try {
-    const preview = await service.previewUndeploy(context.repositoryRoot);
-    if (!preview.files.length) {
+    const result = await service.undeploy(context.repositoryRoot);
+    if (!result.changedFiles.length) {
       void vscode.window.showInformationMessage("The team is already undeployed. The roster remains available.");
       return;
     }
-    const confirmation = await vscode.window.showWarningMessage(
-      `Undeploy ${preview.files.length} generated team file${preview.files.length === 1 ? "" : "s"}? The roster will be kept for quick redeployment.`,
-      {
-        modal: true,
-        detail: `Only watermarked provider files and the managed AGENTS.md block will be removed. Recoverable backups will be written outside the repository.\n\n${preview.files.map((file) => file.path).join("\n")}`,
-      },
-      "Undeploy Team",
-    );
-    if (confirmation !== "Undeploy Team") return;
-    const result = await service.undeploy(context.repositoryRoot, preview, backupRoot);
     await refreshTeam();
     controlCenter.refresh();
     output.appendLine(`Team undeployed: ${result.changedFiles.join(", ")}`);
-    void vscode.window.showInformationMessage(
-      `Team undeployed. The roster was retained.${result.backupDirectory ? ` Backups: ${result.backupDirectory}` : ""}`,
-    );
+    void vscode.window.showInformationMessage(`Team undeployed. Deleted ${result.changedFiles.length} managed file(s); the roster was retained.`);
   } catch (error) {
     void vscode.window.showErrorMessage(`Could not undeploy team: ${errorMessage(error)}`);
   }
