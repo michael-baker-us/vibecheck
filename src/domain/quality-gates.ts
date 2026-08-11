@@ -54,18 +54,18 @@ export function calculateReadiness(
   return { status: "ready", label: "Checks current", reasons: [] };
 }
 
-export type ReadinessBadge = { value: number; tooltip: string };
+export type VerificationBadge = { value: number; tooltip: string };
 
 /**
- * Notification badge for the VibeCheck view: present whenever the Status page reports
- * anything other than "Checks current", so the activity bar mirrors the page without
- * requiring the panel to be open. The value counts the outstanding reasons.
+ * Notification badge for the VibeCheck view. This is deliberately narrower than readiness:
+ * findings, failures, setup recommendations, and checks in progress remain visible in the
+ * Control Center without turning the activity-bar icon into a persistent notification.
  */
-export function readinessBadge(readiness: Readiness | undefined): ReadinessBadge | undefined {
-  if (!readiness || readiness.status === "ready") return undefined;
-  const value = Math.max(readiness.reasons.length, 1);
+export function staleVerificationBadge(verification: VerificationState[]): VerificationBadge | undefined {
+  const stale = verification.filter((check) => check.required !== false && check.status === "stale");
+  if (!stale.length) return undefined;
   return {
-    value,
-    tooltip: `VibeCheck: ${readiness.label}\n${readiness.reasons.map((reason) => `• ${reason}`).join("\n")}`.trim(),
+    value: 1,
+    tooltip: `VibeCheck: ${stale.length} required check${stale.length === 1 ? "" : "s"} stale`,
   };
 }

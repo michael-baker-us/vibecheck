@@ -178,11 +178,12 @@ test("offers a revision range for code review, matching the change summary form"
   assert.match(uiSource("control-center.ts"), /message\.action === "run-review" && message\.options !== undefined/);
 });
 
-test("mirrors the Status page readiness onto the view badge", () => {
+test("drives the view badge from stale verification independently of readiness", () => {
   const source = uiSource("control-center.ts");
 
-  assert.match(source, /readinessBadge/);
-  assert.match(source, /this\.view\.badge = readinessBadge\(readiness\)/);
+  assert.match(source, /staleVerificationBadge/);
+  assert.match(source, /this\.view\.badge = staleVerificationBadge\(snapshot\.kind === "ready" \? snapshot\.state\.verification : \[\]\)/);
+  assert.doesNotMatch(source, /staleVerificationBadge\(readiness\)/);
 });
 
 test("opens Codex in the repository for its native hook trust decision", () => {

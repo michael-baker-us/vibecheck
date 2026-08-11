@@ -6,7 +6,7 @@ import { ConfigurationSetupSession } from "../domain/configuration-setup";
 import { InstructionRefreshSession } from "../domain/instruction-refresh";
 import { ReadmeMaintenanceSession } from "../domain/readme-maintenance";
 import { AgentAlignmentSnapshot } from "../agent-instructions/alignment-service";
-import { categoryFor, calculateReadiness, missingRecommendedCategories, readinessBadge } from "../domain/quality-gates";
+import { categoryFor, calculateReadiness, missingRecommendedCategories, staleVerificationBadge } from "../domain/quality-gates";
 import { ObservationSnapshot } from "../domain/observation-state";
 import { adapterConnectionState, TeamLiveSession, TeamSnapshot } from "../domain/team";
 import { ProviderUsageSnapshot } from "../usage/provider-usage-service";
@@ -59,7 +59,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
         }
       : baseReadiness;
     const adapterInstallation = this.getAdapterInstallation();
-    this.view.badge = readinessBadge(readiness);
+    this.view.badge = staleVerificationBadge(snapshot.kind === "ready" ? snapshot.state.verification : []);
     const payload = snapshot.kind === "ready"
       ? {
           kind: "ready",

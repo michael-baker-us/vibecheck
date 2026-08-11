@@ -5,7 +5,7 @@ const {
   calculateReadiness,
   categoryFor,
   missingRecommendedCategories,
-  readinessBadge,
+  staleVerificationBadge,
 } = require("../dist/domain/quality-gates");
 
 const definition = (name, command, category) => ({
@@ -48,22 +48,28 @@ test("requires configured checks to pass and high-risk findings to be resolved",
   assert.equal(result.reasons.length, 2);
 });
 
-test("badges the view whenever the Status page is not reporting current checks", () => {
-  assert.equal(readinessBadge(undefined), undefined);
-  assert.equal(readinessBadge({ status: "ready", label: "Checks current", reasons: [] }), undefined);
-
-  const incomplete = readinessBadge({
-    status: "incomplete",
-    label: "Checks needed",
-    reasons: ["1 required check not complete", "Missing recommended gates: coverage"],
+test("badges the view only when a required check is stale", () => {
+  const check = (status, required = true) => ({
+    ...definition("tests", "npm test", "tests"),
+    required,
+    status,
   });
-  assert.equal(incomplete.value, 2);
-  assert.match(incomplete.tooltip, /^VibeCheck: Checks needed\n/);
-  assert.match(incomplete.tooltip, /• Missing recommended gates: coverage$/);
 
-  // A status can be non-ready without enumerated reasons; the badge still has to be visible.
-  assert.deepEqual(readinessBadge({ status: "blocked", label: "Action needed", reasons: [] }), {
+  for (const status of ["passed", "running", "not-run", "failed"]) {
+    assert.equal(staleVerificationBadge([check(status)]), undefined, `${status} must not show a badge`);
+  }
+  assert.equal(staleVerificationBadge([]), undefined);
+  assert.equal(staleVerificationBadge([check("stale", false)]), undefined);
+
+  assert.deepEqual(staleVerificationBadge([check("stale")]), {
     value: 1,
-    tooltip: "VibeCheck: Action needed",
+    tooltip: "VibeCheck: 1 required check stale",
+  });
+  assert.deepEqual(staleVerificationBadge([
+    check("stale"),
+    { ...check("stale"), name: "coverage" },
+  ]), {
+    value: 1,
+    tooltip: "VibeCheck: 2 required checks stale",
   });
 });
