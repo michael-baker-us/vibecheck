@@ -182,8 +182,40 @@ test("drives the view badge from stale verification independently of readiness",
   const source = uiSource("control-center.ts");
 
   assert.match(source, /staleVerificationBadge/);
-  assert.match(source, /this\.view\.badge = staleVerificationBadge\(snapshot\.kind === "ready" \? snapshot\.state\.verification : \[\]\)/);
+  assert.match(source, /applyViewBadge\(/);
+  assert.match(source, /staleVerificationBadge\(snapshot\.kind === "ready" \? snapshot\.state\.verification : \[\]\)/);
   assert.doesNotMatch(source, /staleVerificationBadge\(readiness\)/);
+});
+
+test("forces badge clears across initial and stale webview states", () => {
+  const { applyViewBadge } = require("../dist/ui/view-badge");
+  const writes = [];
+  let extensionHostBadge;
+  const view = {
+    get badge() {
+      return extensionHostBadge;
+    },
+    set badge(value) {
+      if (extensionHostBadge?.value === value?.value && extensionHostBadge?.tooltip === value?.tooltip) return;
+      extensionHostBadge = value;
+      writes.push(value);
+    },
+  };
+
+  applyViewBadge(view, undefined);
+
+  const stale = { value: 1, tooltip: "VibeCheck: 1 required check stale" };
+  applyViewBadge(view, stale);
+  applyViewBadge(view, undefined);
+
+  assert.deepEqual(writes, [
+    { value: 0, tooltip: "" },
+    undefined,
+    stale,
+    { value: 0, tooltip: "" },
+    undefined,
+  ]);
+  assert.equal(view.badge, undefined);
 });
 
 test("opens Codex in the repository for its native hook trust decision", () => {

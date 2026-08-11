@@ -12,6 +12,7 @@ import { adapterConnectionState, TeamLiveSession, TeamSnapshot } from "../domain
 import { ProviderUsageSnapshot } from "../usage/provider-usage-service";
 import { DEFAULT_MODEL_ROUTING, MODEL_ROUTING_SETTINGS, normalizeModelRouting } from "../providers/model-routing";
 import { controlCenterHtml } from "./control-center-view";
+import { applyViewBadge } from "./view-badge";
 
 type WebviewMessage = { action?: unknown; id?: unknown; options?: unknown };
 
@@ -40,6 +41,9 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     view.webview.options = { enableScripts: true };
     view.webview.html = this.html(view.webview);
     view.webview.onDidReceiveMessage((message: WebviewMessage) => void this.handle(message));
+    view.onDidDispose(() => {
+      if (this.view === view) this.view = undefined;
+    });
     this.refresh();
   }
 
@@ -59,7 +63,10 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
         }
       : baseReadiness;
     const adapterInstallation = this.getAdapterInstallation();
-    this.view.badge = staleVerificationBadge(snapshot.kind === "ready" ? snapshot.state.verification : []);
+    applyViewBadge(
+      this.view,
+      staleVerificationBadge(snapshot.kind === "ready" ? snapshot.state.verification : []),
+    );
     const payload = snapshot.kind === "ready"
       ? {
           kind: "ready",
