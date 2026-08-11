@@ -121,6 +121,32 @@ export type TeamActivity = {
 
 export const EMPTY_TEAM_ACTIVITY: TeamActivity = { sessions: [], attributionCapable: false };
 
+/**
+ * Live view types. These carry task descriptions, file paths, and commands, so values of this shape
+ * are held in memory and rendered only — never written to workspace state.
+ */
+export type TeamLiveDelegation = {
+  id: string;
+  /** The subagent identifier as the session recorded it; may name a member outside the roster. */
+  member: string;
+  description?: string;
+  startedAt: string;
+  finishedAt?: string;
+};
+
+export type TeamLiveSession = {
+  sessionId: string;
+  /** The session's own working title, as maintained by the provider. */
+  title?: string;
+  startedAt: string;
+  lastEventAt: string;
+  lastTool?: string;
+  /** What the last tool acted on: a repository-relative path, a redacted command, or a pattern. */
+  lastDetail?: string;
+  toolCount: number;
+  delegations: TeamLiveDelegation[];
+};
+
 export type TeamSnapshot =
   | { kind: "absent" }
   | { kind: "error"; reason: string }

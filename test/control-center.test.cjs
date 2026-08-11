@@ -54,9 +54,11 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /\.nav \{ grid-template-columns:repeat\(3,minmax\(0,1fr\)\); \}/);
   assert.match(source, /pages\.team\.append\(roster\.card\)/);
   assert.match(source, /pages\.team\.append\(activity\.card\)/);
-  // The activity view must keep saying what it cannot see, so the limit is never mistaken for a bug.
-  assert.match(source, /cannot see what a session was asked to do/);
-  assert.match(source, /Adapter update available/);
+  // Transcript detail is ephemeral: the activity view must state the persistence boundary.
+  assert.match(source, /Live view, held in memory only/);
+  assert.match(source, /Nothing shown here is written to workspace state/);
+  assert.match(source, /lifecycleSessions=act\.sessions\.filter/, "Codex activity must remain visible beside Claude transcripts");
+  assert.match(source, /elapsed\(d\.startedAt,d\.finishedAt\)/, "completed delegation duration must stop at finish time");
   // The Team panel must keep stating that VibeCheck maintains the roster but never runs the agents.
   assert.match(source, /never launches these agents/);
   assert.match(source, /tools:'settings'/, "an existing saved Tools selection must migrate");

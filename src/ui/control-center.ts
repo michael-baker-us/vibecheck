@@ -8,7 +8,7 @@ import { ReadmeMaintenanceSession } from "../domain/readme-maintenance";
 import { AgentAlignmentSnapshot } from "../agent-instructions/alignment-service";
 import { categoryFor, calculateReadiness, missingRecommendedCategories, readinessBadge } from "../domain/quality-gates";
 import { ObservationSnapshot } from "../domain/observation-state";
-import { TeamSnapshot } from "../domain/team";
+import { TeamLiveSession, TeamSnapshot } from "../domain/team";
 import { ProviderUsageSnapshot } from "../usage/provider-usage-service";
 import { DEFAULT_MODEL_ROUTING, MODEL_ROUTING_SETTINGS, normalizeModelRouting } from "../providers/model-routing";
 import { controlCenterHtml } from "./control-center-view";
@@ -30,6 +30,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     private readonly getProviderUsage: () => ProviderUsageSnapshot,
     private readonly getAgentAlignment: () => AgentAlignmentSnapshot,
     private readonly getTeam: () => TeamSnapshot,
+    private readonly getTeamLive: () => TeamLiveSession[],
     private readonly version: string = "unknown",
   ) {}
 
@@ -75,6 +76,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           providerUsage: this.getProviderUsage(),
           agentAlignment: this.getAgentAlignment(),
           team: this.getTeam(),
+          teamLive: this.getTeamLive(),
           recommendations: configuration.recommendations,
           modelRouting: readModelRouting(),
           version: this.version,

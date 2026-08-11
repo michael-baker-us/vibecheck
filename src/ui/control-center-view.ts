@@ -428,24 +428,47 @@ export function controlCenterHtml(cspSource: string): string {
     }
     pages.team.append(roster.card);
 
-    const act=s.teamActivity||{sessions:[],attributionCapable:false},live=act.sessions.filter(x=>x.status!=='ended');
-    const activity=section('Activity',live.length?live.length+' live':'idle','team:activity',true);
-    const memberName=id=>{const m=teamReady&&team.status.members.find(e=>e.member.id===id);return m?m.member.name:id;};
-    if(!s.agent.connectedAgents.length&&!act.sessions.length){
-      const connect=el('div','callout'); connect.append(el('strong','','No agent adapter connected'),el('p','','VibeCheck cannot see session activity until the local adapter is installed. It records only lifecycle metadata: which session, which team member, which tool, and when — never prompts, task descriptions, or output.'));
-      const connectActions=el('div','item-actions'); connectActions.append(button('Connect Claude','install-claude',undefined,'primary'),button('Connect Codex','install-codex',undefined,'secondary')); connect.append(connectActions); activity.content.append(connect);
-    } else if(!act.sessions.length){
-      activity.content.append(el('div','empty','No agent sessions observed yet in this repository.'));
-    } else {
-      if(!act.attributionCapable){ const stale=el('div','callout'); stale.append(el('strong','','Adapter update available'),el('p','','The installed adapter predates delegation attribution, so sessions appear without a team member. Reconnect to enable it.')); const staleActions=el('div','item-actions'); staleActions.append(button('Reconnect Claude','install-claude',undefined,'secondary')); stale.append(staleActions); activity.content.append(stale); }
-      act.sessions.forEach(x=>{
-        const item=el('div','item'),head=el('div','item-head'),tone=x.status==='active'?'ready':x.status==='idle'?'incomplete':'neutral';
-        head.append(el('span','item-title',x.member?memberName(x.member):'Primary session'),el('span','badge '+tone,x.status));
-        const bits=[x.agent==='codex'?'Codex':'Claude',x.sessionId.slice(0,8),x.lastTool?'last tool '+x.lastTool:'no tool yet',x.toolCount+' tool calls','updated '+new Date(x.lastEventAt).toLocaleTimeString()];
-        item.append(head,el('div','meta',bits.join(' · '))); activity.content.append(item);
-      });
-      activity.content.append(el('div','meta','Lifecycle metadata only. VibeCheck cannot see what a session was asked to do or what it produced.'));
+    const act=s.teamActivity||{sessions:[],attributionCapable:false},liveSessions=data.teamLive||[],liveIds=new Set(liveSessions.map(x=>x.sessionId)),lifecycleSessions=act.sessions.filter(x=>!liveIds.has(x.sessionId));
+    const memberName=id=>{const m=teamReady&&team.status.members.find(e=>e.member.id===id.toLowerCase());return m?m.member.name:id;};
+    const ago=iso=>{const secs=Math.max(0,Math.round((Date.now()-Date.parse(iso))/1000)); if(secs<60)return secs+'s'; const mins=Math.floor(secs/60); return mins<60?mins+'m '+(secs%60)+'s':Math.floor(mins/60)+'h '+(mins%60)+'m';};
+    const elapsed=(start,end)=>{const secs=Math.max(0,Math.round((Date.parse(end)-Date.parse(start))/1000)); if(secs<60)return secs+'s'; const mins=Math.floor(secs/60); return mins<60?mins+'m '+(secs%60)+'s':Math.floor(mins/60)+'h '+(mins%60)+'m';};
+    const running=liveSessions.flatMap(x=>x.delegations.filter(d=>!d.finishedAt));
+    const activity=section('Activity',running.length?running.length+' working':liveSessions.length?liveSessions.length+' session'+(liveSessions.length>1?'s':''):'idle','team:activity',true);
+
+    if(!liveSessions.length&&!act.sessions.length){
+      const connect=el('div','callout'); connect.append(el('strong','','No agent activity yet'),el('p','','Start a Claude Code session in this repository and it will appear here. Installing the local adapter adds tool-level detail for Codex as well.'));
+      const connectActions=el('div','item-actions'); connectActions.append(button('Connect Claude','install-claude',undefined,'secondary'),button('Connect Codex','install-codex',undefined,'ghost')); connect.append(connectActions); activity.content.append(connect);
     }
+
+    liveSessions.forEach(x=>{
+      const card=el('div','item'),head=el('div','item-head'),active=Date.now()-Date.parse(x.lastEventAt)<120000;
+      head.append(el('span','item-title',x.title||'Untitled session'),el('span','badge '+(active?'ready':'neutral'),active?'active':'idle'));
+      card.append(head,el('div','meta',['Claude',x.sessionId.slice(0,8),x.toolCount+' tool calls','updated '+ago(x.lastEventAt)+' ago'].join(' · ')));
+      if(x.lastTool){ const now=el('div','callout'); now.append(el('strong','',x.lastTool),el('span','meta',x.lastDetail? ' · '+x.lastDetail:'')); card.append(now); }
+      if(x.delegations.length){
+        const list=el('div','capability-group'); list.append(el('div','capability-label','Delegations'));
+        x.delegations.slice().reverse().forEach(d=>{
+          const row=el('div','item'),rh=el('div','item-head'),done=Boolean(d.finishedAt);
+          rh.append(el('span','item-title',memberName(d.member)),el('span','badge '+(done?'neutral':'ready'),done?'done':'working'));
+          row.append(rh);
+          if(d.description) row.append(el('p','',d.description));
+          row.append(el('div','meta',done?'took '+elapsed(d.startedAt,d.finishedAt)+' · finished '+ago(d.finishedAt)+' ago':'running for '+ago(d.startedAt)));
+          list.append(row);
+        });
+        card.append(list);
+      }
+      activity.content.append(card);
+    });
+
+    if(lifecycleSessions.length){
+      lifecycleSessions.forEach(x=>{
+        const item=el('div','item'),head=el('div','item-head'),tone=x.status==='active'?'ready':x.status==='idle'?'incomplete':'neutral';
+        head.append(el('span','item-title',x.member?memberName(x.member):'Session'),el('span','badge '+tone,x.status));
+        item.append(head,el('div','meta',[x.agent==='codex'?'Codex':'Claude',x.sessionId.slice(0,8),x.lastTool?'last tool '+x.lastTool:'no tool yet',x.toolCount+' tool calls'].join(' · ')));
+        activity.content.append(item);
+      });
+    }
+    if(liveSessions.length||act.sessions.length) activity.content.append(el('div','meta','Live view, held in memory only. Nothing shown here is written to workspace state.'));
     pages.team.append(activity.card);
 
     const evidence=section('Evidence & reporting','local','status:reporting',false);

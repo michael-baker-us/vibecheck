@@ -41,6 +41,7 @@ import { ControlCenterProvider } from "./ui/control-center";
 import { VibeCheckStatusBar } from "./ui/status-bar";
 import { INSTRUCTION_PREVIEW_SCHEME, InstructionPreviewProvider } from "./ui/instruction-preview-provider";
 import { ProviderUsageService } from "./usage/provider-usage-service";
+import { ClaudeSessionReader } from "./team/session-reader";
 import { TeamService } from "./team/team-service";
 import { TEAM_ROSTER_PATH } from "./team/team-loader";
 import {
@@ -49,6 +50,7 @@ import {
   TEAM_TOOL_PROFILES,
   TeamMember,
   TeamRoster,
+  TeamLiveSession,
   TeamSnapshot,
   TeamTier,
   TeamToolProfile,
@@ -79,7 +81,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let providerUsage = usageService.emptySnapshot();
   let agentAlignment = alignmentService.emptySnapshot();
   const teamService = new TeamService();
+  const sessionReader = new ClaudeSessionReader();
   let team: TeamSnapshot = { kind: "absent" };
+  /** Live session detail. Memory only: never persisted, and gone when the window reloads. */
+  let teamLive: TeamLiveSession[] = [];
   const adapters = new AdapterInstaller(context.asAbsolutePath("resources/hook-bridge.cjs"));
   const statusBar = new VibeCheckStatusBar();
   const diagnostics = new FindingDiagnostics();
@@ -116,6 +121,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => providerUsage,
     () => agentAlignment,
     () => team,
+    () => teamLive,
     extensionVersion(context),
   );
   controller = new ObservationController(
@@ -154,11 +160,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       team = { kind: "error", reason: error instanceof Error ? error.message : String(error) };
     }
   };
+  /**
+   * Polls the provider's own session transcripts for live detail. Kept separate from the state
+   * pipeline because none of it is persisted; it is read, rendered, and discarded.
+   */
+  const refreshTeamLive = async (): Promise<void> => {
+    const snapshot = controller.getSnapshot();
+    if (snapshot.kind !== "ready") {
+      teamLive = [];
+      return;
+    }
+    try {
+      teamLive = await sessionReader.read(snapshot.state.repositoryRoot);
+    } catch {
+      teamLive = [];
+    }
+  };
   refreshAgentAlignment = async () => {
     const snapshot = controller.getSnapshot();
     if (snapshot.kind !== "ready") return;
     agentAlignment = await alignmentService.scan(snapshot.state.repositoryRoot, snapshot.state.activePlan?.path);
     await refreshTeam();
+    await refreshTeamLive();
     controlCenter.refresh();
   };
   const eventReader = new LocalEventReader(
@@ -510,6 +533,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await alignWhenEnabled();
   void vscode.commands.executeCommand("vibecheck.refreshProviderUsage");
   eventReader.start();
+
+  // Live session detail changes while a session works, with no state transition to react to, so it
+  // is polled. Only the tail of recently modified transcripts is read.
+  const liveTimer = setInterval(() => {
+    void (async () => {
+      const previous = JSON.stringify(teamLive);
+      await refreshTeamLive();
+      if (JSON.stringify(teamLive) !== previous) controlCenter.refresh();
+    })();
+  }, 2000);
+  context.subscriptions.push({ dispose: () => clearInterval(liveTimer) });
 }
 
 /** Reads the running extension version from its own manifest. */
