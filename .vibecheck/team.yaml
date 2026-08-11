@@ -19,7 +19,7 @@ members:
     providers:
       - claude
       - codex
-    enabled: true
+    enabled: false
   - id: scout
     name: Scout
     title: Investigator and Debugger

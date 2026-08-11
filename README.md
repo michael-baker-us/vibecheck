@@ -30,7 +30,7 @@ Screenshots are generated from the real panel with `npm run screenshots`; see [d
 - Repository Markdown plan discovery and active-plan selection.
 - Markdown evidence reports, verification reports, and change summaries.
 - Explicit Codex or Claude semantic code reviews that validate structured file and line evidence before it reaches workspace state.
-- Optional local Codex and Claude hook adapters that ingest bounded lifecycle metadata.
+- Team roster management with reviewed deploy, redeploy, and undeploy flows for default or custom agents.
 - Reviewed generation, preview, application, alignment, and reset flows for Claude and Codex workspace instruction/supporting files.
 - Optional Codex and Claude usage snapshots.
 
@@ -214,7 +214,7 @@ analyzers ──┤              │                         │
 verification┘              ├─> control center / status / diagnostics
 plan documents ────────────┤
                            ├─> prompt and report builders
-local agent events ────────┘
+team roster ───────────────┘
 ```
 
 - `src/domain/` contains persisted and analysis-facing types and remains independent of adapters, analyzers, collectors, configuration, UI, and verification.
@@ -222,7 +222,8 @@ local agent events ────────┘
 - `src/analyzers/` contains deterministic risk analysis.
 - `src/verification/` executes trusted commands and tracks freshness.
 - `src/reviews/` runs provider-backed reviews and validates their structured output.
-- `src/adapters/` installs and reads optional local agent hooks.
+- `src/adapters/` retains the explicit cleanup path for legacy monitoring hooks.
+- `src/team/` manages roster compilation, deployment, undeployment, and recoverable backups.
 - `src/agent-instructions/` manages reviewed workspace-file proposals, alignment, backups, and explicit apply boundaries.
 - `src/ui/` renders the VS Code surfaces without directly importing collector, configuration, or verification modules.
 
@@ -232,12 +233,12 @@ The configured rules preserve two important boundaries: UI modules do not read r
 
 VibeCheck has no hosted backend, account requirement, telemetry pipeline, or required network connection. Repository findings, verification output, and reports remain local.
 
-Provider-backed actions are opt-in and read-only. Provider prompts, assistant messages, transcripts, tool arguments, tool output, and credentials are not retained in persistent extension state. Review activity and provider usage information are bounded; usage monitoring retains normalized utilization/reset fields in memory rather than raw provider output or credentials.
+Provider-backed actions are opt-in and read-only. Provider prompts, assistant messages, transcripts, tool arguments, tool output, and credentials are not retained in persistent extension state. Team management writes only reviewed repository instruction and role files; it does not monitor provider sessions.
 
-Optional hook adapters are independently installable and retain only bounded normalized lifecycle metadata. VibeCheck can delete its local observation data and local adapter event files through the extension command.
+Legacy VibeCheck monitoring hooks can be removed explicitly with the `Remove Legacy Agent Monitoring Adapter` command. Other provider hooks are preserved.
 
 ## Project status
 
-The repository’s implementation plan identifies the local repository-mode workflow, deterministic findings, verification freshness, plan-aware intervention, optional adapters, architecture-boundary checks, code review, and model routing as implemented. Current work is focused on product validation and hardening, including dogfooding, extension-host automation, large-repository performance measurement, richer language resolution, multi-root support, and adapter compatibility testing. See [PLAN.md](PLAN.md) for the detailed implementation plan.
+The repository’s implementation plan identifies the local repository-mode workflow, deterministic findings, verification freshness, plan-aware intervention, team management, architecture-boundary checks, code review, and model routing as implemented. Current work is focused on product validation and hardening, including dogfooding, extension-host automation, large-repository performance measurement, richer language resolution, and multi-root support. See [PLAN.md](PLAN.md) for the detailed implementation plan.
 
 <!-- vibecheck-readme: reviewed-at=2026-08-09T21:56:34.671Z; commit=fbbdfff4780a7e35a58f0216dd9d0476dd4fa38a -->

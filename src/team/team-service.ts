@@ -10,7 +10,8 @@
  * write.
  */
 
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 
 import { isAllowedWorkspacePath } from "../agent-instructions/refresh-service";
@@ -34,6 +35,7 @@ import {
   memberFingerprint,
   parseTeamWatermark,
   readTeamBlock,
+  removeTeamBlock,
 } from "./team-compiler";
 import { TEAM_ROSTER_PATH, TeamLoader, legacyBodyPath } from "./team-loader";
 
@@ -53,6 +55,10 @@ const CLAUDE_AGENT_DIRECTORY = ".claude/agents";
 export type TeamApplyResult = {
   changedFiles: string[];
   backupDirectory?: string;
+};
+
+export type TeamUndeployPreview = {
+  files: Array<{ path: string; originalContent: string; proposedContent?: string }>;
 };
 
 export class TeamService {
@@ -95,12 +101,15 @@ export class TeamService {
     };
   }
 
-  public async preview(repositoryRoot: string, roster: TeamRoster): Promise<TeamPreview> {
+  public async preview(repositoryRoot: string, roster: TeamRoster, backupRoot?: string): Promise<TeamPreview> {
+    await assertSafeAgentDirectory(repositoryRoot);
+    await assertSafeRegularFileOrMissing(repositoryRoot, INSTRUCTIONS_PATH);
     const instructions = await readOptional(path.join(repositoryRoot, INSTRUCTIONS_PATH));
-    const existing = await this.existingBodies(repositoryRoot, roster);
+    const existing = await this.existingBodies(repositoryRoot, roster, backupRoot);
     const compiled = compileRoster(roster, instructions ?? "", existing, DEFAULT_BODIES);
     this.assertAllowed(compiled);
     const files = await Promise.all(compiled.map(async (file) => {
+      await assertSafeRegularFileOrMissing(repositoryRoot, file.path);
       const originalContent = await readOptional(path.join(repositoryRoot, file.path));
       const status: TeamFilePreview["status"] = originalContent === undefined
         ? "created"
@@ -126,7 +135,9 @@ export class TeamService {
     orphans: string[] = [],
   ): Promise<TeamApplyResult> {
     const changed = preview.files.filter((file) => file.status !== "unchanged");
+    await assertSafeAgentDirectory(repositoryRoot);
     for (const file of changed) {
+      await assertSafeRegularFileOrMissing(repositoryRoot, file.path);
       const current = await readOptional(path.join(repositoryRoot, file.path));
       if (current !== file.originalContent) {
         throw new Error(
@@ -167,6 +178,66 @@ export class TeamService {
     };
   }
 
+  /** Proposes removal of generated provider files while retaining the roster for redeployment. */
+  public async previewUndeploy(repositoryRoot: string): Promise<TeamUndeployPreview> {
+    const files: TeamUndeployPreview["files"] = [];
+    await assertSafeAgentDirectory(repositoryRoot);
+    let entries: string[] = [];
+    try {
+      entries = await readdir(path.join(repositoryRoot, CLAUDE_AGENT_DIRECTORY));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    for (const entry of entries.sort()) {
+      if (!entry.endsWith(".md")) continue;
+      const relative = `${CLAUDE_AGENT_DIRECTORY}/${entry}`;
+      await assertSafeRegularFileOrMissing(repositoryRoot, relative);
+      const content = await readOptional(path.join(repositoryRoot, relative));
+      if (content !== undefined && parseTeamWatermark(content)) files.push({ path: relative, originalContent: content });
+    }
+    await assertSafeRegularFileOrMissing(repositoryRoot, INSTRUCTIONS_PATH);
+    const instructions = await readOptional(path.join(repositoryRoot, INSTRUCTIONS_PATH));
+    if (instructions !== undefined && readTeamBlock(instructions) !== undefined) {
+      const proposedContent = removeTeamBlock(instructions);
+      files.push({ path: INSTRUCTIONS_PATH, originalContent: instructions, ...(proposedContent ? { proposedContent } : {}) });
+    }
+    return { files };
+  }
+
+  public async undeploy(repositoryRoot: string, preview: TeamUndeployPreview, backupRoot: string): Promise<TeamApplyResult> {
+    const currentPreview = await this.previewUndeploy(repositoryRoot);
+    const expectedPaths = preview.files.map(({ path: relative }) => relative).sort();
+    const currentPaths = currentPreview.files.map(({ path: relative }) => relative).sort();
+    if (expectedPaths.length !== currentPaths.length || expectedPaths.some((relative, index) => relative !== currentPaths[index])) {
+      throw new Error("Generated team files changed after the preview was generated. Generate a new preview before undeploying.");
+    }
+    for (const file of preview.files) {
+      await assertSafeRegularFileOrMissing(repositoryRoot, file.path);
+      if (await readOptional(path.join(repositoryRoot, file.path)) !== file.originalContent) {
+        throw new Error(`${file.path} changed after the preview was generated. Generate a new preview before undeploying.`);
+      }
+    }
+    if (!preview.files.length) return { changedFiles: [] };
+    const backupDirectory = path.join(backupRoot, String(Date.now()));
+    await mkdir(backupDirectory, { recursive: true });
+    const retainedDirectory = retainedBodiesDirectory(backupRoot, repositoryRoot);
+    await mkdir(retainedDirectory, { recursive: true });
+    for (const file of preview.files) {
+      const backup = path.join(backupDirectory, file.path);
+      await mkdir(path.dirname(backup), { recursive: true });
+      await writeFile(backup, file.originalContent, "utf8");
+      if (file.path.startsWith(`${CLAUDE_AGENT_DIRECTORY}/`) && parseTeamWatermark(file.originalContent)) {
+        await writeFile(path.join(retainedDirectory, path.basename(file.path)), file.originalContent, "utf8");
+      }
+    }
+    for (const file of preview.files) {
+      const target = path.join(repositoryRoot, file.path);
+      if (file.proposedContent === undefined) await rm(target, { force: true });
+      else await writeFile(target, file.proposedContent, "utf8");
+    }
+    return { changedFiles: preview.files.map((file) => file.path), backupDirectory };
+  }
+
   /**
    * Compiled agent files with no matching enabled member, left behind when a member is removed,
    * disabled, or stops targeting Claude.
@@ -176,6 +247,7 @@ export class TeamService {
    */
   public async orphans(repositoryRoot: string, roster: TeamRoster): Promise<string[]> {
     const expected = new Set(enabledMembers(roster, "claude").map((member) => claudeAgentPath(member.id)));
+    await assertSafeAgentDirectory(repositoryRoot);
     let entries: string[];
     try {
       entries = await readdir(path.join(repositoryRoot, CLAUDE_AGENT_DIRECTORY));
@@ -188,6 +260,7 @@ export class TeamService {
       if (!entry.endsWith(".md")) continue;
       const relative = `${CLAUDE_AGENT_DIRECTORY}/${entry}`;
       if (expected.has(relative)) continue;
+      await assertSafeRegularFileOrMissing(repositoryRoot, relative);
       const content = await readOptional(path.join(repositoryRoot, relative));
       if (content !== undefined && parseTeamWatermark(content)) found.push(relative);
     }
@@ -250,13 +323,23 @@ export class TeamService {
   private async existingBodies(
     repositoryRoot: string,
     roster: TeamRoster,
+    backupRoot?: string,
   ): Promise<Record<string, string>> {
     const bodies: Record<string, string> = {};
     for (const member of roster.members) {
-      const current = await readOptional(path.join(repositoryRoot, claudeAgentPath(member.id)));
+      const relative = claudeAgentPath(member.id);
+      await assertSafeRegularFileOrMissing(repositoryRoot, relative);
+      const current = await readOptional(path.join(repositoryRoot, relative));
       if (current !== undefined && extractBody(current)) {
         bodies[member.id] = current;
         continue;
+      }
+      if (backupRoot) {
+        const retained = await readOptional(path.join(retainedBodiesDirectory(backupRoot, repositoryRoot), `${member.id}.md`));
+        if (retained !== undefined && parseTeamWatermark(retained)?.id === member.id && extractBody(retained)) {
+          bodies[member.id] = retained;
+          continue;
+        }
       }
       const legacy = await readOptional(path.join(repositoryRoot, legacyBodyPath(member.id)));
       if (legacy !== undefined && legacy.trim()) bodies[member.id] = legacy;
@@ -310,10 +393,42 @@ export class TeamService {
   private async readAll(repositoryRoot: string, paths: string[]): Promise<Array<{ path: string; content: string }>> {
     const files: Array<{ path: string; content: string }> = [];
     for (const relative of paths) {
+      await assertSafeRegularFileOrMissing(repositoryRoot, relative);
       const content = await readOptional(path.join(repositoryRoot, relative));
       if (content !== undefined) files.push({ path: relative, content });
     }
     return files;
+  }
+}
+
+function retainedBodiesDirectory(backupRoot: string, repositoryRoot: string): string {
+  const key = createHash("sha256").update(path.resolve(repositoryRoot)).digest("hex");
+  return path.join(backupRoot, "undeployed-bodies", key);
+}
+
+async function assertSafeAgentDirectory(repositoryRoot: string): Promise<void> {
+  for (const relative of [".claude", CLAUDE_AGENT_DIRECTORY]) {
+    let info;
+    try { info = await lstat(path.join(repositoryRoot, relative)); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw new Error(`Refusing to use unsafe team directory: ${relative}`);
+    }
+  }
+}
+
+async function assertSafeRegularFileOrMissing(repositoryRoot: string, relative: string): Promise<void> {
+  let info;
+  try { info = await lstat(path.join(repositoryRoot, relative)); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  if (info.isSymbolicLink() || !info.isFile()) {
+    throw new Error(`Refusing to use unsafe team file: ${relative}`);
   }
 }
 

@@ -204,6 +204,18 @@ export function readTeamBlock(existing: string): string | undefined {
   return existing.slice(start, end + TEAM_BLOCK_END.length);
 }
 
+/** Removes only the delimited VibeCheck team block, preserving surrounding guidance. */
+export function removeTeamBlock(existing: string): string {
+  const start = existing.indexOf(TEAM_BLOCK_START);
+  const end = existing.indexOf(TEAM_BLOCK_END);
+  if (start === -1 || end === -1 || end < start) return existing;
+  const before = existing.slice(0, start).replace(/\s+$/, "");
+  const after = existing.slice(end + TEAM_BLOCK_END.length).replace(/^\s+/, "");
+  if (before && after) return `${before}\n\n${after}`;
+  if (before) return `${before}\n`;
+  return after ? `${after}\n` : "";
+}
+
 /**
  * Every file the roster owns. Current file contents are passed in rather than read so this stays
  * pure: `existingAgents` maps member id to the current subagent file, and `fallbackBodies` supplies

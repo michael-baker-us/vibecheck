@@ -216,18 +216,8 @@
         "icon": "$(trash)"
       },
       {
-        "command": "vibecheck.installCodexAdapter",
-        "title": "Install Local Codex Adapter",
-        "category": "VibeCheck"
-      },
-      {
-        "command": "vibecheck.installClaudeAdapter",
-        "title": "Install Local Claude Adapter",
-        "category": "VibeCheck"
-      },
-      {
         "command": "vibecheck.uninstallAgentAdapter",
-        "title": "Remove Local Agent Adapter",
+        "title": "Remove Legacy Agent Monitoring Adapter",
         "category": "VibeCheck"
       },
       {
@@ -256,6 +246,12 @@
         "title": "Apply Team to Claude and Codex",
         "category": "VibeCheck",
         "icon": "$(check)"
+      },
+      {
+        "command": "vibecheck.undeployTeam",
+        "title": "Undeploy Engineering Team",
+        "category": "VibeCheck",
+        "icon": "$(trash)"
       },
       {
         "command": "vibecheck.addTeamMember",

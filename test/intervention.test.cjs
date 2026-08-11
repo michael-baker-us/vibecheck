@@ -70,7 +70,6 @@ const state = {
     },
   ],
   trustedCommandHashes: [],
-  agent: { connectedAgents: [] },
 };
 
 test("builds a concrete follow-up prompt and local review", () => {

@@ -38,8 +38,7 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /const gateOutcome = gate =>/);
   assert.match(source, /VibeCheck .\+\(data\.version\|\|.unknown.\)/);
   assert.match(source, /version: this\.version/);
-  assert.match(source, /const adapterInstallation = this\.getAdapterInstallation\(\)/);
-  assert.match(source, /adapterInstallation,/);
+  assert.doesNotMatch(source, /adapterInstallation|adapterConnectionState/);
   assert.match(source, /summaryUnrecognized/);
   assert.match(source, /format: or report_path:/);
   assert.match(source, /Ran · format not recognised/);
@@ -56,21 +55,13 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   assert.match(source, /grid-template-columns:repeat\(5,minmax\(0,1fr\)\)/);
   assert.match(source, /\.nav \{ grid-template-columns:repeat\(3,minmax\(0,1fr\)\); \}/);
   assert.match(source, /pages\.team\.append\(roster\.card\)/);
-  assert.match(source, /pages\.team\.append\(activity\.card\)/);
-  // Transcript detail is ephemeral: the activity view must state the persistence boundary.
-  assert.match(source, /Live view, held in memory only/);
-  assert.match(source, /Nothing shown here is written to workspace state/);
-  assert.match(source, /lifecycleSessions=act\.sessions\.filter/, "Codex activity must remain visible beside Claude transcripts");
-  assert.match(source, /elapsed\(d\.startedAt,d\.finishedAt\)/, "completed delegation duration must stop at finish time");
+  assert.doesNotMatch(source, /teamLive|lifecycleSessions|Team activity|Agent connections/);
   // The Team panel must keep stating that VibeCheck maintains the roster but never runs the agents.
   assert.match(source, /never launches these agents/);
-  assert.match(source, /installed · awaiting Codex approval/);
-  assert.match(source, /observed · active/);
-  assert.match(source, /observed · idle/);
-  assert.match(source, /adapterConnectionState\(adapterInstallation\.codex, snapshot\.state\.teamActivity\.sessions, "codex"\)/);
-  assert.match(source, /state\.kind==='active'\|\|state\.kind==='observed-idle'/);
-  assert.match(source, /not installed/);
-  assert.match(source, /Codex keeps the final hook trust decision in its native review screen/);
+  assert.match(source, /Preview deployment/);
+  assert.match(source, /Deploy team/);
+  assert.match(source, /Undeploy team/);
+  assert.doesNotMatch(source, /install-codex|install-claude|remove-adapter/);
   assert.match(source, /tools:'settings'/, "an existing saved Tools selection must migrate");
   assert.doesNotMatch(source, /pages\.tools\b/);
   assert.match(source, /section\('Change summary','Markdown','review:change-summary'/);
@@ -136,14 +127,14 @@ test("ships a syntactically valid task-oriented Control Center", () => {
   for (const action of [
     "select-plan", "open-plan", "refresh", "refresh-provider-usage", "pause", "resume",
     "run-all", "run-review", "clear-review", "preview-review", "summarize-changes", "maintain-readme",
-    "check-output-menu", "copy-prompt", "export", "config", "setup-prompt", "install-codex",
-    "install-claude", "remove-adapter", "delete", "start", "manage-agent-file",
+    "check-output-menu", "copy-prompt", "export", "config", "setup-prompt",
+    "delete", "start", "manage-agent-file",
     "generate-agent-instructions", "refresh-agent-instructions", "open-agent-capability-template", "preview-agent-workspace", "preview-agent-instruction",
     "apply-agent-instructions", "discard-agent-instructions", "align-agent-instructions",
     "set-agent-alignment", "resolve-agent-alignment", "clear-agent-workspace",
     "inspect-review", "inspect-finding", "accept-finding", "dismiss-finding",
     "reopen-finding", "prompt-finding", "run-check", "check-output",
-    "install-default-team", "preview-team", "apply-team", "add-team-member",
+    "install-default-team", "preview-team", "apply-team", "undeploy-team", "add-team-member",
     "open-team-roster", "open-team-member", "toggle-team-member", "delete-team-member",
   ]) {
     assert.match(source, new RegExp(`['"]${action}['"]`), `expected ${action} to remain reachable`);
@@ -218,13 +209,10 @@ test("forces badge clears across initial and stale webview states", () => {
   assert.equal(view.badge, undefined);
 });
 
-test("opens Codex in the repository for its native hook trust decision", () => {
+test("does not install or launch provider monitoring", () => {
   const source = extensionSource();
 
-  assert.match(source, /name: "VibeCheck Codex Hook Review"/);
-  assert.match(source, /cwd: workspaceFolder\.uri/);
-  assert.match(source, /terminal\.sendText\("codex"\)/);
-  assert.match(source, /must make the final hook trust decision/);
-  assert.match(source, /active only after it observes a local Codex event/);
-  assert.doesNotMatch(source, /Codex adapter installed/);
+  assert.doesNotMatch(source, /createTerminal/);
+  assert.doesNotMatch(source, /terminal\.sendText\("codex"\)/);
+  assert.doesNotMatch(source, /installCodexAdapter|installClaudeAdapter|session-reader|refreshTeamLive/);
 });

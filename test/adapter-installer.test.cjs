@@ -44,6 +44,9 @@ test("does not report a partial hook configuration as installed", async (context
   writeFileSync(configPath, JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ command: `node \"${join(root, ".vibecheck", "bin", "hook-bridge.cjs")}\" codex` }] }] } }));
 
   assert.equal(await installer.isInstalled("codex"), false);
+  assert.equal(await installer.hasConfiguredHooks("codex"), true, "partial legacy hooks still require cleanup");
+  await installer.uninstall("codex");
+  assert.equal(await installer.hasConfiguredHooks("codex"), false);
 });
 
 test("requires the installed bridge to remain a regular file", async (context) => {

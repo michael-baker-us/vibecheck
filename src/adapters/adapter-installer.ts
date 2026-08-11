@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import * as path from "node:path";
 
@@ -49,7 +49,9 @@ export class AdapterInstaller {
 
   public async install(agent: SupportedAgent): Promise<string> {
     await mkdir(path.dirname(this.installedBridge), { recursive: true, mode: 0o700 });
-    await copyFile(this.packagedBridge, this.installedBridge);
+    const bridgeTemporary = `${this.installedBridge}.${process.pid}.tmp`;
+    await copyFile(this.packagedBridge, bridgeTemporary);
+    await this.replaceFile(bridgeTemporary, this.installedBridge);
     const configPath = this.configPath(agent);
     await mkdir(path.dirname(configPath), { recursive: true, mode: 0o700 });
     const configuration = await this.readConfiguration(configPath);
@@ -81,7 +83,7 @@ export class AdapterInstaller {
         });
       }
     }
-    await writeFile(configPath, `${JSON.stringify(configuration, null, 2)}\n`, { mode: 0o600 });
+    await this.writeConfiguration(configPath, configuration);
     return configPath;
   }
 
@@ -114,6 +116,15 @@ export class AdapterInstaller {
     return { codex, claude };
   }
 
+  /** Detects any exact VibeCheck bridge command, including a partially installed legacy adapter. */
+  public async hasConfiguredHooks(agent: SupportedAgent): Promise<boolean> {
+    const configuration = await this.readConfiguration(this.configPath(agent));
+    const command = this.command(agent);
+    return Object.values(configuration.hooks ?? {}).some((groups) =>
+      groups.some((group) => group.hooks?.some((handler) => handler.command === command) === true),
+    );
+  }
+
   public async uninstall(agent: SupportedAgent): Promise<string> {
     const configPath = this.configPath(agent);
     const configuration = await this.readConfiguration(configPath);
@@ -132,7 +143,7 @@ export class AdapterInstaller {
       if (Object.keys(configuration.hooks).length === 0) delete configuration.hooks;
     }
     await mkdir(path.dirname(configPath), { recursive: true, mode: 0o700 });
-    await writeFile(configPath, `${JSON.stringify(configuration, null, 2)}\n`, { mode: 0o600 });
+    await this.writeConfiguration(configPath, configuration);
     return configPath;
   }
 
@@ -159,5 +170,25 @@ export class AdapterInstaller {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
       throw error;
     }
+  }
+
+  private async writeConfiguration(configPath: string, configuration: HookConfiguration): Promise<void> {
+    const temporary = `${configPath}.${process.pid}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(configuration, null, 2)}\n`, { mode: 0o600 });
+    await this.replaceFile(temporary, configPath, 0o600);
+  }
+
+  private async replaceFile(temporary: string, destination: string, mode?: number): Promise<void> {
+    try {
+      await rename(temporary, destination);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EEXIST" && code !== "EPERM") throw error;
+      // Windows cannot atomically rename over an existing file. Overwrite it, then remove the
+      // fully-written temporary file; this keeps reinstall working without deleting first.
+      await copyFile(temporary, destination);
+      await rm(temporary, { force: true });
+    }
+    if (mode !== undefined) await chmod(destination, mode);
   }
 }

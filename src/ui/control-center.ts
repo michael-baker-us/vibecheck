@@ -8,7 +8,7 @@ import { ReadmeMaintenanceSession } from "../domain/readme-maintenance";
 import { AgentAlignmentSnapshot } from "../agent-instructions/alignment-service";
 import { categoryFor, calculateReadiness, missingRecommendedCategories, staleVerificationBadge } from "../domain/quality-gates";
 import { ObservationSnapshot } from "../domain/observation-state";
-import { adapterConnectionState, TeamLiveSession, TeamSnapshot } from "../domain/team";
+import { TeamSnapshot } from "../domain/team";
 import { ProviderUsageSnapshot } from "../usage/provider-usage-service";
 import { DEFAULT_MODEL_ROUTING, MODEL_ROUTING_SETTINGS, normalizeModelRouting } from "../providers/model-routing";
 import { controlCenterHtml } from "./control-center-view";
@@ -31,8 +31,6 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
     private readonly getProviderUsage: () => ProviderUsageSnapshot,
     private readonly getAgentAlignment: () => AgentAlignmentSnapshot,
     private readonly getTeam: () => TeamSnapshot,
-    private readonly getTeamLive: () => TeamLiveSession[],
-    private readonly getAdapterInstallation: () => Record<"codex" | "claude", boolean>,
     private readonly version: string = "unknown",
   ) {}
 
@@ -62,7 +60,6 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           reasons: [...baseReadiness.reasons, `Missing recommended gates: ${missingGates.join(", ")}`],
         }
       : baseReadiness;
-    const adapterInstallation = this.getAdapterInstallation();
     applyViewBadge(
       this.view,
       staleVerificationBadge(snapshot.kind === "ready" ? snapshot.state.verification : []),
@@ -85,12 +82,6 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
           providerUsage: this.getProviderUsage(),
           agentAlignment: this.getAgentAlignment(),
           team: this.getTeam(),
-          teamLive: this.getTeamLive(),
-          adapterInstallation,
-          adapterConnections: {
-            codex: adapterConnectionState(adapterInstallation.codex, snapshot.state.teamActivity.sessions, "codex"),
-            claude: adapterConnectionState(adapterInstallation.claude, snapshot.state.teamActivity.sessions, "claude"),
-          },
           recommendations: configuration.recommendations,
           modelRouting: readModelRouting(),
           version: this.version,
@@ -144,9 +135,6 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       export: "vibecheck.createReport",
       config: "vibecheck.openConfig",
       "setup-prompt": "vibecheck.createSetupPrompt",
-      "install-codex": "vibecheck.installCodexAdapter",
-      "install-claude": "vibecheck.installClaudeAdapter",
-      "remove-adapter": "vibecheck.uninstallAgentAdapter",
       "generate-agent-instructions": "vibecheck.generateAgentInstructions",
       "refresh-agent-instructions": "vibecheck.refreshAgentInstructions",
       "preview-agent-workspace": "vibecheck.previewAgentInstruction",
@@ -157,6 +145,7 @@ export class ControlCenterProvider implements vscode.WebviewViewProvider {
       "install-default-team": "vibecheck.installDefaultTeam",
       "preview-team": "vibecheck.previewTeam",
       "apply-team": "vibecheck.applyTeam",
+      "undeploy-team": "vibecheck.undeployTeam",
       "add-team-member": "vibecheck.addTeamMember",
       "open-team-roster": "vibecheck.openTeamRoster",
       delete: "vibecheck.deleteData",

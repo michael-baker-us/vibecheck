@@ -3,8 +3,7 @@ import * as path from "node:path";
 
 import * as vscode from "vscode";
 
-import { AdapterInstaller, AdapterInstallationStatus, SupportedAgent } from "./adapters/adapter-installer";
-import { LocalEventReader } from "./adapters/local-event-reader";
+import { AdapterInstaller, SupportedAgent } from "./adapters/adapter-installer";
 import { AgentInstructionAlignmentService } from "./agent-instructions/alignment-service";
 import { InstructionRefreshService } from "./agent-instructions/refresh-service";
 import { AgentPermissionGrants } from "./providers/claude-cli";
@@ -41,7 +40,6 @@ import { ControlCenterProvider } from "./ui/control-center";
 import { VibeCheckStatusBar } from "./ui/status-bar";
 import { INSTRUCTION_PREVIEW_SCHEME, InstructionPreviewProvider } from "./ui/instruction-preview-provider";
 import { ProviderUsageService } from "./usage/provider-usage-service";
-import { ClaudeSessionReader } from "./team/session-reader";
 import { TeamService } from "./team/team-service";
 import { TEAM_ROSTER_PATH } from "./team/team-loader";
 import {
@@ -50,7 +48,6 @@ import {
   TEAM_TOOL_PROFILES,
   TeamMember,
   TeamRoster,
-  TeamLiveSession,
   TeamSnapshot,
   TeamTier,
   TeamToolProfile,
@@ -81,12 +78,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let providerUsage = usageService.emptySnapshot();
   let agentAlignment = alignmentService.emptySnapshot();
   const teamService = new TeamService();
-  const sessionReader = new ClaudeSessionReader();
+  const legacyAdapters = new AdapterInstaller(context.asAbsolutePath("resources/hook-bridge.cjs"));
   let team: TeamSnapshot = { kind: "absent" };
-  /** Live session detail. Memory only: never persisted, and gone when the window reloads. */
-  let teamLive: TeamLiveSession[] = [];
-  const adapters = new AdapterInstaller(context.asAbsolutePath("resources/hook-bridge.cjs"));
-  let adapterInstallation: AdapterInstallationStatus = { codex: false, claude: false };
   const statusBar = new VibeCheckStatusBar();
   const diagnostics = new FindingDiagnostics();
   let controller: ObservationController;
@@ -122,8 +115,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => providerUsage,
     () => agentAlignment,
     () => team,
-    () => teamLive,
-    () => adapterInstallation,
     extensionVersion(context),
   );
   controller = new ObservationController(
@@ -154,7 +145,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (snapshot.kind !== "ready") return;
     try {
       const roster = await teamService.load(snapshot.state.repositoryRoot);
-      controller.setRosterIds(roster?.members.map((member) => member.id) ?? []);
       team = roster
         ? { kind: "ready", status: await teamService.status(snapshot.state.repositoryRoot, roster) }
         : { kind: "absent" };
@@ -162,40 +152,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       team = { kind: "error", reason: error instanceof Error ? error.message : String(error) };
     }
   };
-  /**
-   * Polls the provider's own session transcripts for live detail. Kept separate from the state
-   * pipeline because none of it is persisted; it is read, rendered, and discarded.
-   */
-  const refreshTeamLive = async (): Promise<void> => {
-    const snapshot = controller.getSnapshot();
-    if (snapshot.kind !== "ready") {
-      teamLive = [];
-      return;
-    }
-    try {
-      teamLive = await sessionReader.read(snapshot.state.repositoryRoot);
-    } catch {
-      teamLive = [];
-    }
-  };
   refreshAgentAlignment = async () => {
     const snapshot = controller.getSnapshot();
     if (snapshot.kind !== "ready") return;
     agentAlignment = await alignmentService.scan(snapshot.state.repositoryRoot, snapshot.state.activePlan?.path);
     await refreshTeam();
-    await refreshTeamLive();
     controlCenter.refresh();
   };
-  const eventReader = new LocalEventReader(
-    (event) => void controller.ingestAgentEvent(event),
-    output,
-  );
 
   context.subscriptions.push(
     statusBar,
     diagnostics,
     controller,
-    eventReader,
     instructionPreviewProvider,
     vscode.workspace.registerTextDocumentContentProvider(INSTRUCTION_PREVIEW_SCHEME, instructionPreviewProvider),
     vscode.window.registerWebviewViewProvider("vibecheck.overview", controlCenter, {
@@ -375,9 +343,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("vibecheck.installDefaultTeam", () =>
       installDefaultTeam(controller, teamService, refreshTeam, controlCenter)),
     vscode.commands.registerCommand("vibecheck.previewTeam", () =>
-      previewTeam(controller, teamService, instructionPreviewProvider)),
+      previewTeam(
+        controller,
+        teamService,
+        instructionPreviewProvider,
+        path.join(context.globalStorageUri.fsPath, "team-backups"),
+      )),
     vscode.commands.registerCommand("vibecheck.applyTeam", () =>
       applyTeam(
+        controller,
+        teamService,
+        path.join(context.globalStorageUri.fsPath, "team-backups"),
+        refreshTeam,
+        controlCenter,
+        output,
+      )),
+    vscode.commands.registerCommand("vibecheck.undeployTeam", () =>
+      undeployTeam(
         controller,
         teamService,
         path.join(context.globalStorageUri.fsPath, "team-backups"),
@@ -491,17 +473,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       controlCenter.refresh();
       void vscode.window.showInformationMessage("Saved Balanced and Deep model routes for Claude and Codex.");
     }),
-    vscode.commands.registerCommand("vibecheck.installCodexAdapter", () =>
-      installAdapter(adapters, "codex", workspaceFolder, refreshAdapterInstallation),
-    ),
-    vscode.commands.registerCommand("vibecheck.installClaudeAdapter", () =>
-      installAdapter(adapters, "claude", workspaceFolder, refreshAdapterInstallation),
-    ),
-    vscode.commands.registerCommand("vibecheck.uninstallAgentAdapter", () =>
-      uninstallAdapter(adapters, refreshAdapterInstallation),
-    ),
     vscode.commands.registerCommand("vibecheck.createReport", () => createEvidenceReport(controller)),
-    vscode.commands.registerCommand("vibecheck.deleteData", () => deleteData(controller, adapters)),
+    vscode.commands.registerCommand("vibecheck.uninstallAgentAdapter", () =>
+      uninstallLegacyAdapter(legacyAdapters)),
+    vscode.commands.registerCommand("vibecheck.deleteData", () => deleteData(controller)),
   );
 
   statusBar.render(controller.getSnapshot());
@@ -532,30 +507,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
   await refreshAgentAlignment();
-  async function refreshAdapterInstallation(): Promise<void> {
-    try {
-      adapterInstallation = await adapters.installationStatus();
-    } catch (error) {
-      output.appendLine(`Agent adapter status read failed: ${String(error)}`);
-      adapterInstallation = { codex: false, claude: false };
-    }
-    controlCenter.refresh();
-  }
-  await refreshAdapterInstallation();
   await alignWhenEnabled();
-  void vscode.commands.executeCommand("vibecheck.refreshProviderUsage");
-  eventReader.start();
-
-  // Live session detail changes while a session works, with no state transition to react to, so it
-  // is polled. Only the tail of recently modified transcripts is read.
-  const liveTimer = setInterval(() => {
-    void (async () => {
-      const previous = JSON.stringify(teamLive);
-      await refreshTeamLive();
-      if (JSON.stringify(teamLive) !== previous) controlCenter.refresh();
-    })();
-  }, 2000);
-  context.subscriptions.push({ dispose: () => clearInterval(liveTimer) });
+  void promptLegacyAdapterRemoval(legacyAdapters, output);
 }
 
 /** Reads the running extension version from its own manifest. */
@@ -1626,11 +1579,12 @@ async function previewTeam(
   controller: ObservationController,
   service: TeamService,
   previewProvider: InstructionPreviewProvider,
+  backupRoot: string,
 ): Promise<void> {
   const context = await requireRoster(controller, service);
   if (!context) return;
   try {
-    const preview = await service.preview(context.repositoryRoot, context.roster);
+    const preview = await service.preview(context.repositoryRoot, context.roster, backupRoot);
     const changed = preview.files.filter((file) => file.status !== "unchanged");
     if (!changed.length) {
       void vscode.window.showInformationMessage("Provider files already match the team roster.");
@@ -1671,7 +1625,7 @@ async function applyTeam(
   const context = await requireRoster(controller, service);
   if (!context) return;
   try {
-    const preview = await service.preview(context.repositoryRoot, context.roster);
+    const preview = await service.preview(context.repositoryRoot, context.roster, backupRoot);
     const orphans = [
       ...await service.orphans(context.repositoryRoot, context.roster),
       ...await service.legacyBodies(context.repositoryRoot, context.roster),
@@ -1700,6 +1654,43 @@ async function applyTeam(
     );
   } catch (error) {
     void vscode.window.showErrorMessage(errorMessage(error));
+  }
+}
+
+async function undeployTeam(
+  controller: ObservationController,
+  service: TeamService,
+  backupRoot: string,
+  refreshTeam: () => Promise<void>,
+  controlCenter: ControlCenterProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const context = await requireRoster(controller, service);
+  if (!context) return;
+  try {
+    const preview = await service.previewUndeploy(context.repositoryRoot);
+    if (!preview.files.length) {
+      void vscode.window.showInformationMessage("The team is already undeployed. The roster remains available.");
+      return;
+    }
+    const confirmation = await vscode.window.showWarningMessage(
+      `Undeploy ${preview.files.length} generated team file${preview.files.length === 1 ? "" : "s"}? The roster will be kept for quick redeployment.`,
+      {
+        modal: true,
+        detail: `Only watermarked provider files and the managed AGENTS.md block will be removed. Recoverable backups will be written outside the repository.\n\n${preview.files.map((file) => file.path).join("\n")}`,
+      },
+      "Undeploy Team",
+    );
+    if (confirmation !== "Undeploy Team") return;
+    const result = await service.undeploy(context.repositoryRoot, preview, backupRoot);
+    await refreshTeam();
+    controlCenter.refresh();
+    output.appendLine(`Team undeployed: ${result.changedFiles.join(", ")}`);
+    void vscode.window.showInformationMessage(
+      `Team undeployed. The roster was retained.${result.backupDirectory ? ` Backups: ${result.backupDirectory}` : ""}`,
+    );
+  } catch (error) {
+    void vscode.window.showErrorMessage(`Could not undeploy team: ${errorMessage(error)}`);
   }
 }
 
@@ -1835,77 +1826,65 @@ async function createEvidenceReport(controller: ObservationController): Promise<
   void vscode.window.showInformationMessage("Evidence report created locally. Save it only if you want a repository artifact.");
 }
 
-async function installAdapter(
-  adapters: AdapterInstaller,
-  agent: SupportedAgent,
-  workspaceFolder: vscode.WorkspaceFolder,
-  refreshInstallation: () => Promise<void>,
-): Promise<void> {
-  const configPath = adapters.configPath(agent);
-  const choice = await vscode.window.showWarningMessage(
-    `Install the local VibeCheck ${agent} hook adapter? This will merge observer hooks into ${configPath}. Prompts and raw transcripts are not retained.${agent === "codex" ? " Codex will open in a terminal afterwards, where you must make the final hook trust decision." : ""}`,
-    { modal: true },
-    "Install Local Adapter",
-  );
-  if (choice !== "Install Local Adapter") return;
-  try {
-    await adapters.install(agent);
-    await refreshInstallation();
-    if (agent === "codex") {
-      const terminal = vscode.window.createTerminal({
-        name: "VibeCheck Codex Hook Review",
-        cwd: workspaceFolder.uri,
-      });
-      terminal.show();
-      terminal.sendText("codex");
-      void vscode.window.showInformationMessage(
-        "VibeCheck added the Codex hook definitions and opened Codex. Review the native Hooks need review screen and make the final trust selection there; VibeCheck will show the connection as active only after it observes a local Codex event.",
-      );
-    } else {
-      void vscode.window.showInformationMessage(
-        "VibeCheck added the Claude hook definitions. Restart active Claude sessions so they load the hooks; VibeCheck will show the connection as active after it observes a local Claude event.",
-      );
-    }
-  } catch (error) {
-    void vscode.window.showErrorMessage(`Could not install ${agent} adapter: ${String(error)}`);
-  }
-}
-
-async function uninstallAdapter(
-  adapters: AdapterInstaller,
-  refreshInstallation: () => Promise<void>,
-): Promise<void> {
+/** Explicit migration path for hooks installed by the retired monitoring feature. */
+async function uninstallLegacyAdapter(adapters: AdapterInstaller): Promise<void> {
   const agent = await vscode.window.showQuickPick(["codex", "claude"] as const, {
-    title: "Remove a VibeCheck agent adapter",
+    title: "Remove a legacy VibeCheck monitoring adapter",
   });
   if (!agent) return;
   const selectedAgent = agent as SupportedAgent;
   const choice = await vscode.window.showWarningMessage(
-    `Remove VibeCheck hook commands from ${adapters.configPath(selectedAgent)}? Other hooks will be preserved.`,
+    `Remove only VibeCheck's legacy hook commands from ${adapters.configPath(selectedAgent)}? Other hooks will be preserved.`,
     { modal: true },
-    "Remove Adapter",
+    "Remove Legacy Adapter",
   );
-  if (choice !== "Remove Adapter") return;
+  if (choice !== "Remove Legacy Adapter") return;
   try {
     await adapters.uninstall(selectedAgent);
-    await refreshInstallation();
-    void vscode.window.showInformationMessage(`VibeCheck ${selectedAgent} adapter removed.`);
+    await adapters.deleteLocalEvents();
+    void vscode.window.showInformationMessage(`Removed the legacy VibeCheck ${selectedAgent} monitoring adapter.`);
   } catch (error) {
-    void vscode.window.showErrorMessage(`Could not remove ${selectedAgent} adapter: ${String(error)}`);
+    void vscode.window.showErrorMessage(`Could not remove the legacy ${selectedAgent} adapter: ${String(error)}`);
+  }
+}
+
+async function promptLegacyAdapterRemoval(
+  adapters: AdapterInstaller,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  try {
+    const statuses = await Promise.all(
+      (["codex", "claude"] as const).map(async (agent) => ({
+        agent,
+        configured: await adapters.hasConfiguredHooks(agent),
+      })),
+    );
+    const configured = statuses.filter(({ configured }) => configured).map(({ agent }) => agent);
+    if (!configured.length) return;
+    const choice = await vscode.window.showWarningMessage(
+      `VibeCheck team monitoring was retired. Remove its legacy ${configured.join(" and ")} hooks to prevent provider and VS Code slowdowns? Other hooks will be preserved.`,
+      "Remove Legacy Hooks",
+      "Later",
+    );
+    if (choice !== "Remove Legacy Hooks") return;
+    await Promise.all(configured.map((agent) => adapters.uninstall(agent)));
+    await adapters.deleteLocalEvents();
+    void vscode.window.showInformationMessage("Removed legacy VibeCheck monitoring hooks.");
+  } catch (error) {
+    output.appendLine(`Legacy adapter cleanup check failed: ${String(error)}`);
   }
 }
 
 async function deleteData(
   controller: ObservationController,
-  adapters: AdapterInstaller,
 ): Promise<void> {
   const choice = await vscode.window.showWarningMessage(
-    "Delete this workspace's VibeCheck state and the local shared agent-event log? Agent hook configuration will remain installed.",
+    "Delete this workspace's VibeCheck state? Repository files will remain unchanged.",
     { modal: true },
     "Delete Local Data",
   );
   if (choice === "Delete Local Data") {
-    await Promise.all([controller.deleteData(), adapters.deleteLocalEvents()]);
+    await controller.deleteData();
   }
 }
 

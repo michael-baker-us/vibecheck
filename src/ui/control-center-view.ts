@@ -222,8 +222,6 @@ export function controlCenterHtml(cspSource: string): string {
     app.replaceChildren();
     if (data.kind !== 'ready') { const box=el('section','hero'); box.append(el('h1','', 'VibeCheck'),el('p','',data.reason)); box.append(button('Start observing','start',undefined,'primary')); app.append(box,el('div','footer','VibeCheck '+(data.version||'unknown'))); return; }
     const s=data.state, open=s.findings.filter(f=>f.status==='open'), history=s.findings.filter(f=>f.status!=='open');
-    const adapterState=agent=>{ const kind=data.adapterConnections?.[agent]||'not-installed'; if(kind==='active')return {kind,label:'observed · active',tone:'ready',detail:'A local provider session is currently connected.'}; if(kind==='observed-idle')return {kind,label:'observed · idle',tone:'neutral',detail:'Lifecycle events were observed previously; no provider session is active now.'}; if(kind==='awaiting')return {kind,label:agent==='codex'?'installed · awaiting Codex approval':'installed · awaiting activity',tone:'incomplete',detail:agent==='codex'?'Hook definitions are configured. Approve them in Codex before activity can appear.':'Hook definitions are configured. Restart Claude to load them.'}; return {kind,label:'not installed',tone:'neutral',detail:'No VibeCheck hook commands were found in provider configuration.'}; };
-    const adapterActionLabel=agent=>{ const state=adapterState(agent); if(state.kind==='active'||state.kind==='observed-idle')return 'Reinstall '+(agent==='codex'?'Codex':'Claude'); if(state.kind==='awaiting')return agent==='codex'?'Review Codex hooks':'Reinstall Claude adapter'; return 'Connect '+(agent==='codex'?'Codex':'Claude'); };
     const inCategory=category=>s.verification.filter(v=>(data.categories[v.name]||'other')===category).sort((a,b)=>(b.finishedAt||'').localeCompare(a.finishedAt||''));
     const latest=category=>inCategory(category).filter(v=>v.summary)[0];
     // A gate that ran but produced no parseable metrics must not look like a gate that never ran.
@@ -398,7 +396,7 @@ export function controlCenterHtml(cspSource: string): string {
     const showOwner=owner=>{ const ownerFiles=s.agentFiles.filter(f=>f.owner===owner&&f.exists),groups=[]; kindOrder.forEach(kind=>{ const files=ownerFiles.filter(f=>f.kind===kind); if(!files.length)return; const group=el('div','capability-group'); group.append(el('div','capability-label',(kindLabels[kind]||kind)+' · '+files.length+' present'),...files.map(agentFileItem)); groups.push(group); }); const catalogSpecs=capabilityCatalog[owner]||[],catalog=catalogSpecs.length?el('div','capability-catalog'):undefined; if(catalog){ catalog.append(el('div','capability-label','Templates and examples'),...catalogSpecs.map(spec=>capabilityCatalogItem(spec,ownerFiles))); } const existing=groups.length?groups:[el('div','empty','No '+owner+' repository files are present yet.')]; panel.replaceChildren(...(catalog?[catalog,...existing]:existing)); panel.setAttribute('aria-labelledby','agent-tab-'+owner); tabs.querySelectorAll('[role="tab"]').forEach(tab=>{ const selected=tab.dataset.owner===owner; tab.setAttribute('aria-selected',String(selected)); tab.tabIndex=selected?0:-1; }); vscode.setState({...vscode.getState(),agentFileOwner:owner}); };
     owners.forEach(([owner,label],index)=>{ const tab=el('button','tab',label); tab.type='button'; tab.dataset.owner=owner; tab.dataset.focusKey='agent-tab:'+owner; tab.id='agent-tab-'+owner; tab.setAttribute('role','tab'); tab.setAttribute('aria-controls','agent-file-panel'); tab.onclick=()=>showOwner(owner); tab.onkeydown=event=>{ if(event.key!=='ArrowLeft'&&event.key!=='ArrowRight') return; event.preventDefault(); const offset=event.key==='ArrowRight'?1:-1, next=owners[(index+offset+owners.length)%owners.length][0]; showOwner(next); tabs.querySelector('[data-owner="'+next+'"]').focus(); }; tabs.append(tab); });
     panel.id='agent-file-panel'; panel.setAttribute('aria-labelledby','agent-tab-'+initialOwner); agents.card.append(tabs,panel); showOwner(initialOwner);
-    const adapter=el('div','item'); adapter.append(el('div','item-title','Local agent event adapters'),el('div','meta','Installation is detected from local configuration; active means VibeCheck has observed an event.')); ['codex','claude'].forEach(agent=>{ const state=adapterState(agent),row=el('div','callout'),head=el('div','item-head'); head.append(el('strong','',agent==='codex'?'Codex':'Claude'),el('span','badge '+state.tone,state.label)); row.append(head,el('p','',state.detail)); const actions=el('div','item-actions'); actions.append(button(adapterActionLabel(agent),agent==='codex'?'install-codex':'install-claude',undefined,state.tone==='neutral'?'primary':'secondary')); row.append(actions); adapter.append(row); }); const aa=el('div','item-actions'); aa.append(button('Remove adapter','remove-adapter',undefined,'ghost')); adapter.append(aa); const agentFooter=el('div','content'); agentFooter.append(adapter); agents.card.append(agentFooter); pages.settings.append(agents.card);
+    pages.settings.append(agents.card);
 
     const team=data.team,teamReady=team&&team.kind==='ready';
     const roster=section('Roster',teamReady?team.status.members.filter(m=>m.member.enabled).length+' enabled':team&&team.kind==='error'?'error':'not configured','team:roster',true);
@@ -415,7 +413,7 @@ export function controlCenterHtml(cspSource: string): string {
       statusHead.append(el('strong','','Provider files'),el('span','badge '+(drifted?'incomplete':'ready'),drifted?drifted+' pending':'in sync'));
       status.append(statusHead,el('div','meta',st.policy.provider+' · '+st.policy.profile+' profile · AGENTS.md block '+st.instructions.state));
       const rosterActions=el('div','item-actions');
-      rosterActions.append(button('Preview changes','preview-team',undefined,'secondary'),button(drifted?'Apply to providers':'Re-apply','apply-team',undefined,drifted?'primary':'ghost'),button('Add member','add-team-member',undefined,'ghost'),button('Open team.yaml','open-team-roster',undefined,'ghost'));
+      rosterActions.append(button('Preview deployment','preview-team',undefined,'secondary'),button(drifted?'Deploy team':'Re-deploy team','apply-team',undefined,drifted?'primary':'ghost'),button('Undeploy team','undeploy-team',undefined,'ghost danger'),button('Add member','add-team-member',undefined,'ghost'),button('Open team.yaml','open-team-roster',undefined,'ghost'));
       status.append(rosterActions); roster.content.append(status);
       if(!st.members.length) roster.content.append(el('div','empty','The roster has no members.'));
       st.members.forEach(entry=>{
@@ -429,48 +427,6 @@ export function controlCenterHtml(cspSource: string): string {
       });
     }
     pages.team.append(roster.card);
-
-    const act=s.teamActivity||{sessions:[],attributionCapable:false},liveSessions=data.teamLive||[],liveIds=new Set(liveSessions.map(x=>x.sessionId)),lifecycleSessions=act.sessions.filter(x=>!liveIds.has(x.sessionId));
-    const memberName=id=>{const m=teamReady&&team.status.members.find(e=>e.member.id===id.toLowerCase());return m?m.member.name:id;};
-    const ago=iso=>{const secs=Math.max(0,Math.round((Date.now()-Date.parse(iso))/1000)); if(secs<60)return secs+'s'; const mins=Math.floor(secs/60); return mins<60?mins+'m '+(secs%60)+'s':Math.floor(mins/60)+'h '+(mins%60)+'m';};
-    const elapsed=(start,end)=>{const secs=Math.max(0,Math.round((Date.parse(end)-Date.parse(start))/1000)); if(secs<60)return secs+'s'; const mins=Math.floor(secs/60); return mins<60?mins+'m '+(secs%60)+'s':Math.floor(mins/60)+'h '+(mins%60)+'m';};
-    const running=liveSessions.flatMap(x=>x.delegations.filter(d=>!d.finishedAt));
-    const activity=section('Activity',running.length?running.length+' working':liveSessions.length?liveSessions.length+' session'+(liveSessions.length>1?'s':''):'idle','team:activity',true);
-
-    const connect=el('div','callout'); connect.append(el('strong','',!liveSessions.length&&!act.sessions.length?'No agent activity yet':'Agent connections'),el('p','','Adapter configuration and provider approval are separate. Codex keeps the final hook trust decision in its native review screen.'));
-    ['claude','codex'].forEach(agent=>{ const state=adapterState(agent),row=el('div','item-head'); row.append(el('span','',agent==='codex'?'Codex':'Claude'),el('span','badge '+state.tone,state.label)); connect.append(row); });
-    const connectActions=el('div','item-actions'); connectActions.append(button(adapterActionLabel('claude'),'install-claude',undefined,'secondary'),button(adapterActionLabel('codex'),'install-codex',undefined,'ghost')); connect.append(connectActions); activity.content.append(connect);
-
-    liveSessions.forEach(x=>{
-      const card=el('div','item'),head=el('div','item-head'),active=Date.now()-Date.parse(x.lastEventAt)<120000;
-      head.append(el('span','item-title',x.title||'Untitled session'),el('span','badge '+(active?'ready':'neutral'),active?'active':'idle'));
-      card.append(head,el('div','meta',['Claude',x.sessionId.slice(0,8),x.toolCount+' tool calls','updated '+ago(x.lastEventAt)+' ago'].join(' · ')));
-      if(x.lastTool){ const now=el('div','callout'); now.append(el('strong','',x.lastTool),el('span','meta',x.lastDetail? ' · '+x.lastDetail:'')); card.append(now); }
-      if(x.delegations.length){
-        const list=el('div','capability-group'); list.append(el('div','capability-label','Delegations'));
-        x.delegations.slice().reverse().forEach(d=>{
-          const row=el('div','item'),rh=el('div','item-head'),done=Boolean(d.finishedAt);
-          rh.append(el('span','item-title',memberName(d.member)),el('span','badge '+(done?'neutral':'ready'),done?'done':'working'));
-          row.append(rh);
-          if(d.description) row.append(el('p','',d.description));
-          row.append(el('div','meta',done?'took '+elapsed(d.startedAt,d.finishedAt)+' · finished '+ago(d.finishedAt)+' ago':'running for '+ago(d.startedAt)));
-          list.append(row);
-        });
-        card.append(list);
-      }
-      activity.content.append(card);
-    });
-
-    if(lifecycleSessions.length){
-      lifecycleSessions.forEach(x=>{
-        const item=el('div','item'),head=el('div','item-head'),tone=x.status==='active'?'ready':x.status==='idle'?'incomplete':'neutral';
-        head.append(el('span','item-title',x.member?memberName(x.member):'Session'),el('span','badge '+tone,x.status));
-        item.append(head,el('div','meta',[x.agent==='codex'?'Codex':'Claude',x.sessionId.slice(0,8),x.lastTool?'last tool '+x.lastTool:'no tool yet',x.toolCount+' tool calls'].join(' · ')));
-        activity.content.append(item);
-      });
-    }
-    if(liveSessions.length||act.sessions.length) activity.content.append(el('div','meta','Live view, held in memory only. Nothing shown here is written to workspace state.'));
-    pages.team.append(activity.card);
 
     const evidence=section('Evidence & reporting','local','status:reporting',false);
     const summary=el('div','callout'); summary.append(el('strong','', 'Current evidence snapshot'),el('p','',(s.headSubject?s.headSubject+' · ':'')+s.verification.filter(v=>v.status==='passed').length+' checks passed · '+open.length+' findings open · updated '+new Date(s.lastUpdatedAt).toLocaleTimeString())); evidence.content.append(summary); const ea=el('div','actions'); ea.append(button('Create Markdown report','export'),button('Copy agent follow-up','copy-prompt'),button('View check report','check-output-menu',undefined,'ghost'),button('Open quality config','config',undefined,'ghost')); evidence.content.append(ea); pages.status.append(evidence.card);

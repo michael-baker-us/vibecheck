@@ -4,9 +4,9 @@ import {
   OBSERVATION_STATE_VERSION,
   ObservationState,
 } from "../domain/observation-state";
-import { EMPTY_TEAM_ACTIVITY } from "../domain/team";
 
-const OBSERVATION_STATE_KEY = "vibecheck.observationState.v8";
+const OBSERVATION_STATE_KEY = "vibecheck.observationState.v9";
+const VERSION_EIGHT_STATE_KEY = "vibecheck.observationState.v8";
 const VERSION_SEVEN_STATE_KEY = "vibecheck.observationState.v7";
 const VERSION_SIX_STATE_KEY = "vibecheck.observationState.v6";
 const VERSION_FIVE_STATE_KEY = "vibecheck.observationState.v5";
@@ -25,30 +25,35 @@ type LegacyObservationState = {
   changedPaths: string[];
 };
 
-/** v7 predates team activity; the field is simply absent and defaults to empty. */
-type VersionSevenObservationState = Omit<ObservationState, "version" | "teamActivity"> & {
+type VersionEightObservationState = Omit<ObservationState, "version"> & {
+  version: 8;
+  agent?: unknown;
+  teamActivity?: unknown;
+};
+
+type VersionSevenObservationState = Omit<ObservationState, "version"> & {
   version: 7;
 };
 
-type VersionSixObservationState = Omit<ObservationState, "version" | "codeReview" | "teamActivity"> & {
+type VersionSixObservationState = Omit<ObservationState, "version" | "codeReview"> & {
   version: 6;
   codeReview?: Omit<NonNullable<ObservationState["codeReview"]>, "profile" | "model" | "effort">;
 };
 
-type VersionFiveObservationState = Omit<ObservationState, "teamActivity" | "version" | "codeReview"> & {
+type VersionFiveObservationState = Omit<ObservationState, "version" | "codeReview"> & {
   version: 5;
   codeReview?: Omit<NonNullable<ObservationState["codeReview"]>, "baselineCommit" | "activity" | "profile" | "model" | "effort">;
 };
 
-type VersionFourObservationState = Omit<ObservationState, "teamActivity" | "version" | "codeReview"> & {
+type VersionFourObservationState = Omit<ObservationState, "version" | "codeReview"> & {
   version: 4;
 };
 
-type VersionThreeObservationState = Omit<ObservationState, "teamActivity" | "version" | "agentFiles"> & {
+type VersionThreeObservationState = Omit<ObservationState, "version" | "agentFiles"> & {
   version: 3;
 };
 
-type VersionTwoObservationState = Omit<ObservationState, "teamActivity" | "version" | "planCandidates" | "agentFiles"> & {
+type VersionTwoObservationState = Omit<ObservationState, "version" | "planCandidates" | "agentFiles"> & {
   version: 2;
   workingIntent?: string;
 };
@@ -62,17 +67,22 @@ export class WorkspaceStore {
       return current;
     }
 
+    const versionEight = this.state.get<VersionEightObservationState>(VERSION_EIGHT_STATE_KEY);
+    if (versionEight?.version === 8) {
+      const rest = stripLegacyMonitoring(versionEight);
+      return { ...rest, version: OBSERVATION_STATE_VERSION };
+    }
+
     const versionSeven = this.state.get<VersionSevenObservationState>(VERSION_SEVEN_STATE_KEY);
     if (versionSeven?.version === 7) {
-      return { ...versionSeven, version: OBSERVATION_STATE_VERSION, teamActivity: EMPTY_TEAM_ACTIVITY };
+      return { ...stripLegacyMonitoring(versionSeven), version: OBSERVATION_STATE_VERSION };
     }
 
     const versionSix = this.state.get<VersionSixObservationState>(VERSION_SIX_STATE_KEY);
     if (versionSix?.version === 6) {
       return {
-        ...versionSix,
+        ...stripLegacyMonitoring(versionSix),
         version: OBSERVATION_STATE_VERSION,
-        teamActivity: EMPTY_TEAM_ACTIVITY,
         codeReview: versionSix.codeReview ? {
           ...versionSix.codeReview,
           profile: "deep",
@@ -85,9 +95,8 @@ export class WorkspaceStore {
     const versionFive = this.state.get<VersionFiveObservationState>(VERSION_FIVE_STATE_KEY);
     if (versionFive?.version === 5) {
       return {
-        ...versionFive,
+        ...stripLegacyMonitoring(versionFive),
         version: OBSERVATION_STATE_VERSION,
-        teamActivity: EMPTY_TEAM_ACTIVITY,
         codeReview: versionFive.codeReview ? {
           ...versionFive.codeReview,
           baselineCommit: versionFive.baselineCommit,
@@ -101,18 +110,18 @@ export class WorkspaceStore {
 
     const versionFour = this.state.get<VersionFourObservationState>(VERSION_FOUR_STATE_KEY);
     if (versionFour?.version === 4) {
-      return { ...versionFour, version: OBSERVATION_STATE_VERSION, teamActivity: EMPTY_TEAM_ACTIVITY };
+      return { ...stripLegacyMonitoring(versionFour), version: OBSERVATION_STATE_VERSION };
     }
 
     const versionThree = this.state.get<VersionThreeObservationState>(VERSION_THREE_STATE_KEY);
     if (versionThree?.version === 3) {
-      return { ...versionThree, version: OBSERVATION_STATE_VERSION, agentFiles: [], teamActivity: EMPTY_TEAM_ACTIVITY };
+      return { ...stripLegacyMonitoring(versionThree), version: OBSERVATION_STATE_VERSION, agentFiles: [] };
     }
 
     const versionTwo = this.state.get<VersionTwoObservationState>(VERSION_TWO_STATE_KEY);
     if (versionTwo?.version === 2) {
-      const { workingIntent: _workingIntent, ...rest } = versionTwo;
-      return { ...rest, version: OBSERVATION_STATE_VERSION, planCandidates: [], agentFiles: [], teamActivity: EMPTY_TEAM_ACTIVITY };
+      const { workingIntent: _workingIntent, ...rest } = stripLegacyMonitoring(versionTwo);
+      return { ...rest, version: OBSERVATION_STATE_VERSION, planCandidates: [], agentFiles: [] };
     }
 
     const legacy = this.state.get<LegacyObservationState>(LEGACY_STATE_KEY);
@@ -130,8 +139,6 @@ export class WorkspaceStore {
       findings: [],
       verification: [],
       trustedCommandHashes: [],
-      agent: { connectedAgents: [] },
-      teamActivity: EMPTY_TEAM_ACTIVITY,
     };
   }
 
@@ -139,6 +146,7 @@ export class WorkspaceStore {
     await this.state.update(OBSERVATION_STATE_KEY, observation);
     await Promise.all([
       this.state.update(VERSION_TWO_STATE_KEY, undefined),
+      this.state.update(VERSION_EIGHT_STATE_KEY, undefined),
       this.state.update(VERSION_THREE_STATE_KEY, undefined),
       this.state.update(VERSION_FOUR_STATE_KEY, undefined),
       this.state.update(VERSION_FIVE_STATE_KEY, undefined),
@@ -152,6 +160,7 @@ export class WorkspaceStore {
     await Promise.all([
       this.state.update(OBSERVATION_STATE_KEY, undefined),
       this.state.update(VERSION_TWO_STATE_KEY, undefined),
+      this.state.update(VERSION_EIGHT_STATE_KEY, undefined),
       this.state.update(VERSION_THREE_STATE_KEY, undefined),
       this.state.update(VERSION_FOUR_STATE_KEY, undefined),
       this.state.update(VERSION_FIVE_STATE_KEY, undefined),
@@ -160,4 +169,12 @@ export class WorkspaceStore {
       this.state.update(LEGACY_STATE_KEY, undefined),
     ]);
   }
+}
+
+function stripLegacyMonitoring<T extends object>(value: T): Omit<T, "agent" | "teamActivity"> {
+  const { agent: _agent, teamActivity: _teamActivity, ...rest } = value as T & {
+    agent?: unknown;
+    teamActivity?: unknown;
+  };
+  return rest;
 }

@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import * as path from "node:path";
 
 import * as vscode from "vscode";
 
@@ -9,7 +8,6 @@ import { GitCollector } from "./collectors/git-collector";
 import { PlanCollector } from "./collectors/plan-collector";
 import { WorkspaceWatcher } from "./collectors/workspace-watcher";
 import { ConfigLoader } from "./config/config-loader";
-import { AgentEvent } from "./domain/agent-events";
 import { CodeReviewProvider, CodeReviewSelection, CodeReviewTranscriptEntry, RevisionRange } from "./domain/code-review";
 import {
   DEFAULT_CONFIGURATION,
@@ -21,9 +19,7 @@ import {
   ObservationSnapshot,
   ObservationState,
 } from "./domain/observation-state";
-import { EMPTY_TEAM_ACTIVITY } from "./domain/team";
 import { WorkspaceStore } from "./storage/workspace-store";
-import { applyAgentEvent, decayActivity, reconcileActivity } from "./team/activity-tracker";
 import { CodeReviewService } from "./reviews/code-review-service";
 import { VerificationService } from "./verification/verification-service";
 
@@ -39,7 +35,6 @@ export class ObservationController implements vscode.Disposable {
   private refreshRequested = false;
   private reviewActivityQueue: Promise<void> = Promise.resolve();
   private reviewTranscript: CodeReviewTranscriptEntry[] = [];
-  private roster: ReadonlySet<string> = new Set();
 
   public constructor(
     private readonly workspaceFolder: vscode.WorkspaceFolder,
@@ -125,8 +120,6 @@ export class ObservationController implements vscode.Disposable {
         findings: [],
         verification: [],
         trustedCommandHashes: previous?.trustedCommandHashes ?? [],
-        agent: previous?.agent ?? { connectedAgents: [] },
-        teamActivity: previous?.teamActivity ?? EMPTY_TEAM_ACTIVITY,
       };
       await this.updateState(state);
       await this.refresh();
@@ -164,42 +157,6 @@ export class ObservationController implements vscode.Disposable {
   public async selectPlan(relativePath: string): Promise<void> {
     await this.mutateState((state) => ({ ...state, selectedPlanPath: relativePath }));
     await this.refresh();
-  }
-
-  public async ingestAgentEvent(event: AgentEvent): Promise<void> {
-    if (this.snapshot.kind !== "ready" || !event.workspace) return;
-    const relative = path.relative(this.snapshot.state.repositoryRoot, event.workspace);
-    if (relative.startsWith("..") || path.isAbsolute(relative)) return;
-    const rosterIds = this.rosterIds();
-    await this.mutateState((state) => {
-      const agents = new Set(state.agent.connectedAgents);
-      if (event.type === "session-end") agents.delete(event.agent);
-      else agents.add(event.agent);
-      return {
-        ...state,
-        agent: {
-          connectedAgents: [...agents],
-          lastEventAt: event.at,
-          lastEventType: event.type,
-        },
-        teamActivity: applyAgentEvent(state.teamActivity, event, rosterIds, Date.now()),
-      };
-    });
-    if (event.type === "tool-finished" || event.type === "turn-stop") {
-      await this.refresh();
-    }
-  }
-
-  /**
-   * Roster member ids, supplied by the extension host. Attribution is dropped for anything not in
-   * this set, which is the semantic half of the bound on delegation metadata.
-   */
-  public setRosterIds(ids: readonly string[]): void {
-    this.roster = new Set(ids);
-  }
-
-  private rosterIds(): ReadonlySet<string> {
-    return this.roster;
   }
 
   public async setFindingStatus(findingId: string, status: FindingStatus): Promise<void> {
@@ -444,10 +401,6 @@ export class ObservationController implements vscode.Disposable {
         : this.snapshot.state.codeReview;
       await this.updateState({
         ...this.snapshot.state,
-        teamActivity: reconcileActivity(
-          decayActivity(this.snapshot.state.teamActivity, Date.now()),
-          this.roster,
-        ),
         baselineCommit,
         headBranch: repository.branch,
         headSubject: repository.subject,

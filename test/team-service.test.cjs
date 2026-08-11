@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const test = require("node:test");
@@ -190,6 +190,98 @@ test("never removes subagent files it did not generate", async (context) => {
   await applyAll(service, root, updated, backups);
   assert.ok(existsSync(join(root, ".claude", "agents", "mine.md")));
   assert.equal(existsSync(join(root, ".claude", "agents", "cody.md")), false);
+});
+
+test("undeploy removes generated files and managed instructions while retaining the roster", async (context) => {
+  const { root, backups, service, roster } = await seeded(context);
+  writeFileSync(join(root, "AGENTS.md"), "# Guidance\n\nKeep this.\n", "utf8");
+  await applyAll(service, root, roster, backups);
+  writeFileSync(join(root, ".claude", "agents", "mine.md"), "---\nname: mine\n---\nHand authored.\n", "utf8");
+
+  const preview = await service.previewUndeploy(root);
+  assert.equal(preview.files.length, 7);
+  const result = await service.undeploy(root, preview, backups);
+
+  assert.ok(result.backupDirectory);
+  assert.ok(existsSync(join(root, ".vibecheck", "team.yaml")));
+  assert.ok(existsSync(join(root, ".claude", "agents", "mine.md")));
+  assert.equal(existsSync(join(root, ".claude", "agents", "cody.md")), false);
+  assert.equal(readFileSync(join(root, "AGENTS.md"), "utf8"), "# Guidance\n\nKeep this.\n");
+  assert.ok(existsSync(join(result.backupDirectory, ".claude", "agents", "cody.md")));
+  assert.ok(existsSync(join(result.backupDirectory, "AGENTS.md")));
+});
+
+test("undeploy rejects a stale preview", async (context) => {
+  const { root, backups, service, roster } = await seeded(context);
+  await applyAll(service, root, roster, backups);
+  const preview = await service.previewUndeploy(root);
+  writeFileSync(join(root, ".claude", "agents", "cody.md"), "changed after preview\n", "utf8");
+  await assert.rejects(service.undeploy(root, preview, backups), /changed after the preview/);
+  assert.ok(existsSync(join(root, ".vibecheck", "team.yaml")));
+});
+
+test("rejects symlinked team targets during preview and apply", async (context) => {
+  const { root, backups, service, roster } = await seeded(context);
+  const outside = join(backups, "outside.md");
+  writeFileSync(outside, "outside\n", "utf8");
+  symlinkSync(outside, join(root, "AGENTS.md"));
+  await assert.rejects(service.preview(root, roster, backups), /unsafe team file: AGENTS\.md/);
+
+  rmSync(join(root, "AGENTS.md"));
+  const preview = await service.preview(root, roster, backups);
+  symlinkSync(outside, join(root, "AGENTS.md"));
+  await assert.rejects(service.apply(root, preview, backups), /unsafe team file: AGENTS\.md/);
+  assert.equal(readFileSync(outside, "utf8"), "outside\n");
+});
+
+test("rejects symlinked agent directories and generated agent files", async (context) => {
+  const { root, backups, service, roster } = await seeded(context);
+  const outsideDirectory = join(backups, "outside-agents");
+  mkdirSync(outsideDirectory);
+  mkdirSync(join(root, ".claude"));
+  symlinkSync(outsideDirectory, join(root, ".claude", "agents"));
+  await assert.rejects(service.preview(root, roster, backups), /unsafe team directory: \.claude\/agents/);
+
+  rmSync(join(root, ".claude", "agents"));
+  await applyAll(service, root, roster, backups);
+  const undeployPreview = await service.previewUndeploy(root);
+  const outside = join(backups, "outside-agent.md");
+  writeFileSync(outside, "outside\n", "utf8");
+  rmSync(join(root, ".claude", "agents", "cody.md"));
+  symlinkSync(outside, join(root, ".claude", "agents", "cody.md"));
+  await assert.rejects(service.previewUndeploy(root), /unsafe team file: \.claude\/agents\/cody\.md/);
+  await assert.rejects(service.undeploy(root, undeployPreview, backups), /unsafe team file: \.claude\/agents\/cody\.md/);
+  assert.equal(readFileSync(outside, "utf8"), "outside\n");
+});
+
+test("undeploy rejects generated target-set drift", async (context) => {
+  const { root, backups, service, roster } = await seeded(context);
+  await applyAll(service, root, roster, backups);
+  const preview = await service.previewUndeploy(root);
+  const cody = readFileSync(join(root, ".claude", "agents", "cody.md"), "utf8");
+  writeFileSync(join(root, ".claude", "agents", "new-generated.md"), cody, "utf8");
+
+  await assert.rejects(service.undeploy(root, preview, backups), /Generated team files changed after the preview/);
+  assert.ok(existsSync(join(root, ".claude", "agents", "new-generated.md")));
+  assert.ok(existsSync(join(root, ".claude", "agents", "cody.md")));
+});
+
+test("redeploy restores an authored role body retained outside the repository", async (context) => {
+  const { root, backups, service, roster } = await seeded(context);
+  await applyAll(service, root, roster, backups);
+  const codyPath = join(root, ".claude", "agents", "cody.md");
+  writeFileSync(codyPath, readFileSync(codyPath, "utf8").replace(
+    "You are Cody, the implementer for this repository.",
+    "You are Cody. Preserve this custom role body across undeployment.",
+  ), "utf8");
+
+  const undeployPreview = await service.previewUndeploy(root);
+  await service.undeploy(root, undeployPreview, backups);
+  assert.equal(existsSync(codyPath), false);
+
+  const deployPreview = await service.preview(root, roster, backups);
+  await service.apply(root, deployPreview, backups);
+  assert.match(readFileSync(codyPath, "utf8"), /Preserve this custom role body across undeployment/);
 });
 
 test("adds a new member and compiles it with a watermark", async (context) => {
